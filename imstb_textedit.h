@@ -400,6 +400,16 @@ typedef struct
 #define IMSTB_TEXTEDIT_memmove memmove
 #endif
 
+// [DEAR IMGUI]
+// Functions must be implemented for UTF8 support
+// Code in this file that uses those functions is modified for [DEAR IMGUI] and deviates from the original stb_textedit.
+// There is not necessarily a '[DEAR IMGUI]' at the usage sites.
+#ifndef IMSTB_TEXTEDIT_GETPREVCHARINDEX
+#define IMSTB_TEXTEDIT_GETPREVCHARINDEX(OBJ, IDX) ((IDX) - 1)
+#endif
+#ifndef IMSTB_TEXTEDIT_GETNEXTCHARINDEX
+#define IMSTB_TEXTEDIT_GETNEXTCHARINDEX(OBJ, IDX) ((IDX) + 1)
+#endif
 
 /////////////////////////////////////////////////////////////////////////////
 //
@@ -648,17 +658,6 @@ static void stb_textedit_move_to_last(IMSTB_TEXTEDIT_STRING *str, STB_TexteditSt
    }
 }
 
-// [DEAR IMGUI]
-// Functions must be implemented for UTF8 support
-// Code in this file that uses those functions is modified for [DEAR IMGUI] and deviates from the original stb_textedit.
-// There is not necessarily a '[DEAR IMGUI]' at the usage sites.
-#ifndef IMSTB_TEXTEDIT_GETPREVCHARINDEX
-#define IMSTB_TEXTEDIT_GETPREVCHARINDEX(obj, idx) (idx - 1)
-#endif
-#ifndef IMSTB_TEXTEDIT_GETNEXTCHARINDEX
-#define IMSTB_TEXTEDIT_GETNEXTCHARINDEX(obj, idx) (idx + 1)
-#endif
-
 #ifdef STB_TEXTEDIT_IS_SPACE
 static int is_word_boundary( IMSTB_TEXTEDIT_STRING *str, int idx )
 {
@@ -668,9 +667,9 @@ static int is_word_boundary( IMSTB_TEXTEDIT_STRING *str, int idx )
 #ifndef STB_TEXTEDIT_MOVEWORDLEFT
 static int stb_textedit_move_to_word_previous( IMSTB_TEXTEDIT_STRING *str, int c )
 {
-   --c; // always move at least one character
-   while( c >= 0 && !is_word_boundary( str, c ) )
-      --c;
+   c = IMSTB_TEXTEDIT_GETPREVCHARINDEX( str, c ); // always move at least one character
+   while (c >= 0 && !is_word_boundary(str, c))
+      c = IMSTB_TEXTEDIT_GETPREVCHARINDEX(str, c);
 
    if( c < 0 )
       c = 0;
@@ -684,9 +683,9 @@ static int stb_textedit_move_to_word_previous( IMSTB_TEXTEDIT_STRING *str, int c
 static int stb_textedit_move_to_word_next( IMSTB_TEXTEDIT_STRING *str, int c )
 {
    const int len = STB_TEXTEDIT_STRINGLEN(str);
-   ++c; // always move at least one character
+   c = IMSTB_TEXTEDIT_GETNEXTCHARINDEX(str, c); // always move at least one character
    while( c < len && !is_word_boundary( str, c ) )
-      ++c;
+      c = IMSTB_TEXTEDIT_GETNEXTCHARINDEX(str, c);
 
    if( c > len )
       c = len;
@@ -918,8 +917,9 @@ retry:
             state->cursor = start;
             STB_TEXTEDIT_LAYOUTROW(&row, str, state->cursor);
             x = row.x0;
-            for (i=0; i < row.num_chars; ++i) {
+            for (i=0; i < row.num_chars; ) {
                float dx = STB_TEXTEDIT_GETWIDTH(str, start, i);
+               int next = IMSTB_TEXTEDIT_GETNEXTCHARINDEX(str, state->cursor);
                #ifdef IMSTB_TEXTEDIT_GETWIDTH_NEWLINE
                if (dx == IMSTB_TEXTEDIT_GETWIDTH_NEWLINE)
                   break;
@@ -927,7 +927,8 @@ retry:
                x += dx;
                if (x > goal_x)
                   break;
-               state->cursor = IMSTB_TEXTEDIT_GETNEXTCHARINDEX(str, state->cursor);
+               i += next - state->cursor;
+               state->cursor = next;
             }
             stb_textedit_clamp(str, state);
 
@@ -980,8 +981,9 @@ retry:
             state->cursor = find.prev_first;
             STB_TEXTEDIT_LAYOUTROW(&row, str, state->cursor);
             x = row.x0;
-            for (i=0; i < row.num_chars; ++i) {
+            for (i=0; i < row.num_chars; ) {
                float dx = STB_TEXTEDIT_GETWIDTH(str, find.prev_first, i);
+               int next = IMSTB_TEXTEDIT_GETNEXTCHARINDEX(str, state->cursor);
                #ifdef IMSTB_TEXTEDIT_GETWIDTH_NEWLINE
                if (dx == IMSTB_TEXTEDIT_GETWIDTH_NEWLINE)
                   break;
@@ -989,7 +991,8 @@ retry:
                x += dx;
                if (x > goal_x)
                   break;
-               state->cursor = IMSTB_TEXTEDIT_GETNEXTCHARINDEX(str, state->cursor);
+               i += next - state->cursor;
+               state->cursor = next;
             }
             stb_textedit_clamp(str, state);
 
@@ -1002,8 +1005,13 @@ retry:
             // go to previous line
             // (we need to scan previous line the hard way. maybe we could expose this as a new API function?)
             prev_scan = find.prev_first > 0 ? find.prev_first - 1 : 0;
-            while (prev_scan > 0 && STB_TEXTEDIT_GETCHAR(str, prev_scan - 1) != STB_TEXTEDIT_NEWLINE)
-               --prev_scan;
+            while (prev_scan > 0)
+            {
+               int prev = IMSTB_TEXTEDIT_GETPREVCHARINDEX(str, prev_scan);
+               if (STB_TEXTEDIT_GETCHAR(str, prev) == STB_TEXTEDIT_NEWLINE)
+                  break;
+               prev_scan = prev;
+            }
             find.first_char = find.prev_first;
             find.prev_first = prev_scan;
          }
@@ -1082,7 +1090,7 @@ retry:
          if (state->single_line)
             state->cursor = 0;
          else while (state->cursor > 0 && STB_TEXTEDIT_GETCHAR(str, state->cursor-1) != STB_TEXTEDIT_NEWLINE)
-            --state->cursor;
+            state->cursor = IMSTB_TEXTEDIT_GETPREVCHARINDEX(str, state->cursor);
          state->has_preferred_x = 0;
          break;
 
@@ -1094,9 +1102,9 @@ retry:
          stb_textedit_clamp(str, state);
          stb_textedit_move_to_first(state);
          if (state->single_line)
-             state->cursor = n;
+            state->cursor = n;
          else while (state->cursor < n && STB_TEXTEDIT_GETCHAR(str, state->cursor) != STB_TEXTEDIT_NEWLINE)
-             ++state->cursor;
+            state->cursor = IMSTB_TEXTEDIT_GETNEXTCHARINDEX(str, state->cursor);
          state->has_preferred_x = 0;
          break;
       }
@@ -1110,7 +1118,7 @@ retry:
          if (state->single_line)
             state->cursor = 0;
          else while (state->cursor > 0 && STB_TEXTEDIT_GETCHAR(str, state->cursor-1) != STB_TEXTEDIT_NEWLINE)
-            --state->cursor;
+            state->cursor = IMSTB_TEXTEDIT_GETPREVCHARINDEX(str, state->cursor);
          state->select_end = state->cursor;
          state->has_preferred_x = 0;
          break;
@@ -1125,7 +1133,7 @@ retry:
          if (state->single_line)
              state->cursor = n;
          else while (state->cursor < n && STB_TEXTEDIT_GETCHAR(str, state->cursor) != STB_TEXTEDIT_NEWLINE)
-            ++state->cursor;
+            state->cursor = IMSTB_TEXTEDIT_GETNEXTCHARINDEX(str, state->cursor);
          state->select_end = state->cursor;
          state->has_preferred_x = 0;
          break;
