@@ -34,7 +34,7 @@ set_target_properties(${PROJECT_NAME} PROPERTIES
 
 if (WIN32)
     target_compile_definitions(${PROJECT_NAME} PRIVATE
-        IMGUI_API=__declspec(dllexport)
+        "IMGUI_API=__declspec(dllexport)"
     )
 endif()
 
