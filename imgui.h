@@ -1,4 +1,4 @@
-// dear imgui, v1.92.0 WIP
+// dear imgui, v1.92.0
 // (headers)
 
 // Help:
@@ -28,8 +28,8 @@
 
 // Library Version
 // (Integer encoded as XYYZZ for use in #if preprocessor conditionals, e.g. '#if IMGUI_VERSION_NUM >= 12345')
-#define IMGUI_VERSION       "1.92.0 WIP"
-#define IMGUI_VERSION_NUM   19199
+#define IMGUI_VERSION       "1.92.0"
+#define IMGUI_VERSION_NUM   19200
 #define IMGUI_HAS_TABLE             // Added BeginTable() - from IMGUI_VERSION_NUM >= 18000
 #define IMGUI_HAS_TEXTURES          // Added ImGuiBackendFlags_RendererHasTextures - from IMGUI_VERSION_NUM >= 19198
 
@@ -3953,7 +3953,7 @@ struct ImGuiPlatformImeData
 namespace ImGui
 {
     // OBSOLETED in 1.92.0 (from June 2025)
-    static inline void  PushFont(ImFont* font)                                  { IM_ASSERT(font != NULL); PushFont(font, font->LegacySize); }
+    static inline void  PushFont(ImFont* font)                                  { PushFont(font, font ? font->LegacySize : 0.0f); }
     IMGUI_API void      SetWindowFontScale(float scale);                        // Set font scale factor for current window. Prefer using PushFont(NULL, style.FontSizeBase * factor) or use style.FontScaleMain to scale all windows.
     // OBSOLETED in 1.91.9 (from February 2025)
     IMGUI_API void      Image(ImTextureRef tex_ref, const ImVec2& image_size, const ImVec2& uv0, const ImVec2& uv1, const ImVec4& tint_col, const ImVec4& border_col); // <-- 'border_col' was removed in favor of ImGuiCol_ImageBorder. If you use 'tint_col', use ImageWithBg() instead.
