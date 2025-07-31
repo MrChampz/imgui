@@ -29,7 +29,7 @@
 // Library Version
 // (Integer encoded as XYYZZ for use in #if preprocessor conditionals, e.g. '#if IMGUI_VERSION_NUM >= 12345')
 #define IMGUI_VERSION       "1.92.2 WIP"
-#define IMGUI_VERSION_NUM   19212
+#define IMGUI_VERSION_NUM   19213
 #define IMGUI_HAS_TABLE             // Added BeginTable() - from IMGUI_VERSION_NUM >= 18000
 #define IMGUI_HAS_TEXTURES          // Added ImGuiBackendFlags_RendererHasTextures - from IMGUI_VERSION_NUM >= 19198
 
@@ -1370,10 +1370,17 @@ enum ImGuiTabBarFlags_
     ImGuiTabBarFlags_NoTabListScrollingButtons      = 1 << 4,   // Disable scrolling buttons (apply when fitting policy is ImGuiTabBarFlags_FittingPolicyScroll)
     ImGuiTabBarFlags_NoTooltip                      = 1 << 5,   // Disable tooltips when hovering a tab
     ImGuiTabBarFlags_DrawSelectedOverline           = 1 << 6,   // Draw selected overline markers over selected tab
-    ImGuiTabBarFlags_FittingPolicyResizeDown        = 1 << 7,   // Resize tabs when they don't fit
-    ImGuiTabBarFlags_FittingPolicyScroll            = 1 << 8,   // Add scroll buttons when tabs don't fit
-    ImGuiTabBarFlags_FittingPolicyMask_             = ImGuiTabBarFlags_FittingPolicyResizeDown | ImGuiTabBarFlags_FittingPolicyScroll,
-    ImGuiTabBarFlags_FittingPolicyDefault_          = ImGuiTabBarFlags_FittingPolicyResizeDown,
+
+    // Fitting/Resize policy
+    ImGuiTabBarFlags_FittingPolicyMixed             = 1 << 7,   // Shrink down tabs when they don't fit, until width is style.TabMinWidthShrink, then enable scrolling buttons.
+    ImGuiTabBarFlags_FittingPolicyShrink            = 1 << 8,   // Shrink down tabs when they don't fit
+    ImGuiTabBarFlags_FittingPolicyScroll            = 1 << 9,   // Enable scrolling buttons when tabs don't fit
+    ImGuiTabBarFlags_FittingPolicyMask_             = ImGuiTabBarFlags_FittingPolicyMixed | ImGuiTabBarFlags_FittingPolicyShrink | ImGuiTabBarFlags_FittingPolicyScroll,
+    ImGuiTabBarFlags_FittingPolicyDefault_          = ImGuiTabBarFlags_FittingPolicyMixed,
+
+#ifndef IMGUI_DISABLE_OBSOLETE_FUNCTIONS
+    ImGuiTabBarFlags_FittingPolicyResizeDown        = ImGuiTabBarFlags_FittingPolicyShrink, // Renamed in 1.92.2
+#endif
 };
 
 // Flags for ImGui::BeginTabItem()
@@ -1803,6 +1810,8 @@ enum ImGuiStyleVar_
     ImGuiStyleVar_ImageBorderSize,          // float     ImageBorderSize
     ImGuiStyleVar_TabRounding,              // float     TabRounding
     ImGuiStyleVar_TabBorderSize,            // float     TabBorderSize
+    ImGuiStyleVar_TabMinWidthBase,          // float     TabMinWidthBase
+    ImGuiStyleVar_TabMinWidthShrink,        // float     TabMinWidthShrink
     ImGuiStyleVar_TabBarBorderSize,         // float     TabBarBorderSize
     ImGuiStyleVar_TabBarOverlineSize,       // float     TabBarOverlineSize
     ImGuiStyleVar_TableAngledHeadersAngle,  // float     TableAngledHeadersAngle
@@ -2268,6 +2277,8 @@ struct ImGuiStyle
     float       ImageBorderSize;            // Thickness of border around Image() calls.
     float       TabRounding;                // Radius of upper corners of a tab. Set to 0.0f to have rectangular tabs.
     float       TabBorderSize;              // Thickness of border around tabs.
+    float       TabMinWidthBase;            // Minimum tab width, to make tabs larger than their contents. TabBar buttons are not affected.
+    float       TabMinWidthShrink;          // Minimum tab width after shrinking, when using ImGuiTabBarFlags_FittingPolicyMixed policy.
     float       TabCloseButtonMinWidthSelected;     // -1: always visible. 0.0f: visible when hovered. >0.0f: visible when hovered if minimum width.
     float       TabCloseButtonMinWidthUnselected;   // -1: always visible. 0.0f: visible when hovered. >0.0f: visible when hovered if minimum width. FLT_MAX: never show close button when unselected.
     float       TabBarBorderSize;           // Thickness of tab-bar separator, which takes on the tab active color to denote focus.
