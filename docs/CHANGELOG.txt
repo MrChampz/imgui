@@ -41,6 +41,14 @@ HOW TO UPDATE?
 
 Breaking Changes:
 
+- Hashing: handling of "###" operator to reset to seed within a string identifier
+  doesn't include the "###" characters in the output hash anymore:
+      Before: GetID("Hello###World") == GetID("###World") != GetID("World");
+      Now:    GetID("Hello###World") == GetID("###World") == GetID("World");
+  - This has the property of facilitating concatenating and manipulating
+    identifers using "###", and will allow fixing other dangling issues.
+  - This will invalidate hashes (stored in .ini data) for Tables and Windows
+    that are using the "###" operators. (#713, #1698)
 - Fonts: Fixed handling of `ImFontConfig::FontDataOwnedByAtlas = false` which
   did erroneously make a copy of the font data, essentially defeating the purpose
   of this flag and wasting memory (undetected since July 2015 and now spotted
@@ -298,6 +306,8 @@ Other Changes:
   using ImGuiWindowFlags_UnsavedDocument/ImGuiTabItemFlags_UnsavedDocument. (#8983)
 - IO: added ImGuiPlatformIO::ClearPlatformHandlers(), ClearRendererHandlers()
   helpers to null all handlers. (#8945, #2769)
+- Tables: changed ImGuiTableFlags_NoBordersInBody behavior to not draw border in
+  body even when resizing. (#8893)
 - Inputs:
   - Shortcuts: added support for combining ImGuiInputFlags_RouteFocused
     (which is the default route) with ImGuiInputFlags_RouteOverActive, allowing
