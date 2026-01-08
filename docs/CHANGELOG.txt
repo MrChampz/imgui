@@ -41,6 +41,12 @@ HOW TO UPDATE?
 
 Breaking Changes:
 
+- Commented out legacy names obsoleted in 1.90 (Sept 2023):
+  - BeginChildFrame()     --> BeginChild() with ImGuiChildFlags_FrameStyle flag.
+  - EndChildFrame()       --> EndChild().
+  - ShowStackToolWindow() --> ShowIDStackToolWindow().
+  - IM_OFFSETOF()         --> offsetof().
+  - IM_FLOOR()            --> IM_TRUNC() [internal, for positive values only]
 - Hashing: handling of "###" operator to reset to seed within a string identifier
   doesn't include the "###" characters in the output hash anymore:
       Before: GetID("Hello###World") == GetID("###World") != GetID("World");
@@ -98,7 +104,6 @@ Breaking Changes:
    - BeginPopupContextItem("foo", 0);                                      // !! Behavior changed !! Was Left button. Now will defaults to Right button! --> Use ImGuiPopupFlags_MouseButtonLeft.
    - BeginPopupContextItem("foo", ImGuiPopupFlags_NoReopen);               // !! Behavior changed !! Was Left button + flags. Now will defaults to Right button! --> Use ImGuiPopupFlags_MouseButtonLeft | xxx.
 
-
 Other Changes:
 
 - Fonts:
@@ -151,10 +156,19 @@ Other Changes:
       end of a line rather than at the beginning of next line. (#8990, #3237)
   - Fixed low-level word-wrapping function reading from *text_end when passed
     a string range. (#9107) [@achabense]
+- Nav:
+  - Fixed remote/shortcut InputText() not teleporting mouse cursor when
+    nav cursor is visible and `io.ConfigNavMoveSetMousePos` is enabled.
 - Scrollbar: fixed a codepath leading to a divide-by-zero (which would not be
   noticeable by user but detected by sanitizers). (#9089) [@judicaelclair]
 - Added GetItemFlags() in public API for consistency and to expose generic
   flags of last submitted item. (#9127)
+- Shortcuts:
+  - IsItemHovered() without ImGuiHoveredFlags_AllowWhenBlockedByActiveItem
+    doesn't filter out the signal when activated item is a shortcut remote activation;
+    (which mimicks what's done internally in the ItemHoverable() function). (#9138)
+  - Fixed tooltip placement being affected for a frame when located over an item
+    activated by SetNextItemShortcut(). (#9138)
 - Debug Tools:
   - Debug Log: fixed incorrectly printing characters in IO log when submitting
     non-ASCII values to io.AddInputCharacter(). (#9099)
