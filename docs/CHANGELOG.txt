@@ -47,6 +47,10 @@ Breaking Changes:
      indices or memory offsets inside ImTextureID, where 0 might be a valid value.
    - If this is causing problem with e.g your custom ImTextureID definition, you can
      add '#define ImTextureID_Invalid 0' to your imconfig.h + PLEASE report this to GitHub.
+   - If you have hardcoded e.g. 'if (tex_id == 0)' checks they should be updated.
+     e.g. OpenGL2, OpenGL3 and SDLRenderer3 backends incorrectly had 'IM_ASSERT(tex->TexID == 0)'
+     lines which were replaced with 'IM_ASSERT(tex->TexID == ImTextureID_Invalid)'.
+     If you have copied or forked backends consider fixing locally. (#9295)
  - Separator(): fixed a legacy quirk where Separator() was submitting a zero-height
    item for layout purpose, even though it draws a 1-pixel separator.
    The fix could affect code e.g. computing height from multiple widgets in order to
@@ -90,6 +94,10 @@ Other Changes:
     - TextLink() underline thickness.
     - ColorButton() border thickness.
     - Separator() thickness, via scaling newly added style.SeparatorSize. (#2657, #9263)
+- Nav:
+  - Popups: Shift+F10 or Menu key can now open popups menus when using
+    BeginPopupContextItem(), BeginPopupContextWindow() or OpenPopupOnItemClick().
+    (#8803, #9270) [@exelix11, @ocornut]
 - Clipper:
   - Clear `DisplayStart`/`DisplayEnd` fields when `Step()` returns false.
   - Added `UserIndex` helper storage. This is solely a convenience for cases where

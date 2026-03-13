@@ -167,6 +167,7 @@ CODE
      - Home, End                    Scroll to top, scroll to bottom.
      - Alt                          Toggle between scrolling layer and menu layer.
      - Ctrl+Tab then Ctrl+Arrows    Move window. Hold Shift to resize instead of moving.
+     - Menu or Shift+F10            Open context menu.
    - Output when ImGuiConfigFlags_NavEnableKeyboard set,
      - io.WantCaptureKeyboard flag is set when keyboard is claimed.
      - io.NavActive: true when a window is focused and it doesn't have the ImGuiWindowFlags_NoNavInputs flag set.
@@ -397,6 +398,7 @@ IMPLEMENTING SUPPORT for ImGuiBackendFlags_RendererHasTextures:
  - 2026/03/12 (1.92.7) - Changed default ImTextureID_Invalid to -1 instead of 0 if not #define-d. (#9293, #8745, #8465, #7090)
                          It seems like a better default since it will work with backends storing indices or memory offsets inside ImTextureID, where 0 might be a valid value.
                          If this is causing problem with e.g. your custom ImTextureID definition, you can add '#define ImTextureID_Invalid 0' to your imconfig.h + PLEASE report this to GitHub.
+                         If you have hard-coded e.g. 'if (tex_id == 0)' checks they should be updated. e.g. OpenGL2, OpenGL3 and SDLRenderer3 backends incorrectly had 'IM_ASSERT(tex->TexID == 0)' lines which were replaced with 'IM_ASSERT(tex->TexID == ImTextureID_Invalid)'. (#9295)
  - 2026/02/26 (1.92.7) - Separator: fixed a legacy quirk where Separator() was submitting a zero-height item for layout purpose, even though it draws a 1-pixel separator.
                          The fix could affect code e.g. computing height from multiple widgets in order to allocate vertical space for a footer or multi-line status bar. (#2657, #9263)
                          The "Console" example had such a bug:
@@ -1357,6 +1359,7 @@ static void             NavUpdateWindowing();
 static void             NavUpdateWindowingApplyFocus(ImGuiWindow* window);
 static void             NavUpdateWindowingOverlay();
 static void             NavUpdateCancelRequest();
+static void             NavUpdateContextMenuRequest();
 static void             NavUpdateCreateMoveRequest();
 static void             NavUpdateCreateTabbingRequest();
 static float            NavUpdatePageUpPageDown();
@@ -4214,6 +4217,7 @@ ImGuiContext::ImGuiContext(ImFontAtlas* shared_font_atlas)
     NavWindow = NULL;
     NavFocusScopeId = NavActivateId = NavActivateDownId = NavActivatePressedId = 0;
     NavLayer = ImGuiNavLayer_Main;
+    NavOpenContextMenuItemId = NavOpenContextMenuWindowId = 0;
     NavNextActivateId = 0;
     NavActivateFlags = NavNextActivateFlags = ImGuiActivateFlags_None;
     NavHighlightActivatedId = 0;
@@ -12498,17 +12502,40 @@ ImGuiMouseButton ImGui::GetMouseButtonFromPopupFlags(ImGuiPopupFlags flags)
     return ImGuiMouseButton_Right; // Default == 1
 }
 
+bool ImGui::IsPopupOpenRequestForItem(ImGuiPopupFlags popup_flags, ImGuiID id)
+{
+    ImGuiContext& g = *GImGui;
+    ImGuiMouseButton mouse_button = GetMouseButtonFromPopupFlags(popup_flags);
+    if (IsMouseReleased(mouse_button) && IsItemHovered(ImGuiHoveredFlags_AllowWhenBlockedByPopup))
+        return true;
+    if (g.NavOpenContextMenuItemId == id && (IsItemFocused() || id == g.CurrentWindow->MoveId))
+        return true;
+    return false;
+}
+
+bool ImGui::IsPopupOpenRequestForWindow(ImGuiPopupFlags popup_flags)
+{
+    ImGuiContext& g = *GImGui;
+    ImGuiMouseButton mouse_button = GetMouseButtonFromPopupFlags(popup_flags);
+    if (IsMouseReleased(mouse_button) && IsWindowHovered(ImGuiHoveredFlags_AllowWhenBlockedByPopup))
+        if (!(popup_flags & ImGuiPopupFlags_NoOpenOverItems) || !IsAnyItemHovered())
+            return true;
+    if (g.NavOpenContextMenuWindowId && g.CurrentWindow->ID)
+        if (IsWindowChildOf(g.NavWindow, g.CurrentWindow, false)) // This enable ordering to be used to disambiguate item vs window (#8803)
+            return true;
+    return false;
+}
+
 // Helper to open a popup if mouse button is released over the item
 // - This is essentially the same as BeginPopupContextItem() but without the trailing BeginPopup()
 void ImGui::OpenPopupOnItemClick(const char* str_id, ImGuiPopupFlags popup_flags)
 {
     ImGuiContext& g = *GImGui;
     ImGuiWindow* window = g.CurrentWindow;
-    ImGuiMouseButton mouse_button = GetMouseButtonFromPopupFlags(popup_flags);
-    if (IsMouseReleased(mouse_button) && IsItemHovered(ImGuiHoveredFlags_AllowWhenBlockedByPopup))
+    if (IsPopupOpenRequestForItem(popup_flags, g.LastItemData.ID))
     {
-        ImGuiID id = str_id ? window->GetID(str_id) : g.LastItemData.ID;    // If user hasn't passed an ID, we can use the LastItemID. Using LastItemID as a Popup ID won't conflict!
-        IM_ASSERT(id != 0);                                             // You cannot pass a NULL str_id if the last item has no identifier (e.g. a Text() item)
+        ImGuiID id = str_id ? window->GetID(str_id) : g.LastItemData.ID; // If user hasn't passed an ID, we can use the LastItemID. Using LastItemID as a Popup ID won't conflict!
+        IM_ASSERT(id != 0);                                              // You cannot pass a NULL str_id if the last item has no identifier (e.g. a Text() item)
         OpenPopupEx(id, popup_flags);
     }
 }
@@ -12535,10 +12562,9 @@ bool ImGui::BeginPopupContextItem(const char* str_id, ImGuiPopupFlags popup_flag
     ImGuiWindow* window = g.CurrentWindow;
     if (window->SkipItems)
         return false;
-    ImGuiID id = str_id ? window->GetID(str_id) : g.LastItemData.ID;    // If user hasn't passed an ID, we can use the LastItemID. Using LastItemID as a Popup ID won't conflict!
-    IM_ASSERT(id != 0);                                             // You cannot pass a NULL str_id if the last item has no identifier (e.g. a Text() item)
-    ImGuiMouseButton mouse_button = GetMouseButtonFromPopupFlags(popup_flags);
-    if (IsMouseReleased(mouse_button) && IsItemHovered(ImGuiHoveredFlags_AllowWhenBlockedByPopup))
+    ImGuiID id = str_id ? window->GetID(str_id) : g.LastItemData.ID; // If user hasn't passed an ID, we can use the LastItem ID. Using LastItem ID as a Popup ID won't conflict!
+    IM_ASSERT(id != 0);                                              // You cannot pass a NULL str_id if the last item has no identifier (e.g. a Text() item)
+    if (IsPopupOpenRequestForItem(popup_flags, g.LastItemData.ID))
         OpenPopupEx(id, popup_flags);
     return BeginPopupEx(id, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoSavedSettings);
 }
@@ -12550,10 +12576,8 @@ bool ImGui::BeginPopupContextWindow(const char* str_id, ImGuiPopupFlags popup_fl
     if (!str_id)
         str_id = "window_context";
     ImGuiID id = window->GetID(str_id);
-    ImGuiMouseButton mouse_button = GetMouseButtonFromPopupFlags(popup_flags);
-    if (IsMouseReleased(mouse_button) && IsWindowHovered(ImGuiHoveredFlags_AllowWhenBlockedByPopup))
-        if (!(popup_flags & ImGuiPopupFlags_NoOpenOverItems) || !IsAnyItemHovered())
-            OpenPopupEx(id, popup_flags);
+    if (IsPopupOpenRequestForWindow(popup_flags))
+        OpenPopupEx(id, popup_flags);
     return BeginPopupEx(id, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoSavedSettings);
 }
 
@@ -13730,6 +13754,7 @@ static void ImGui::NavUpdate()
 
     // Process NavCancel input (to close a popup, get back to parent, clear focus)
     NavUpdateCancelRequest();
+    NavUpdateContextMenuRequest();
 
     // Process manual activation request
     g.NavActivateId = g.NavActivateDownId = g.NavActivatePressedId = 0;
@@ -14212,6 +14237,28 @@ static void ImGui::NavUpdateCancelRequest()
         if (g.IO.ConfigNavEscapeClearFocusWindow)
             FocusWindow(NULL);
     }
+}
+
+static void ImGui::NavUpdateContextMenuRequest()
+{
+    ImGuiContext& g = *GImGui;
+    g.NavOpenContextMenuItemId = g.NavOpenContextMenuWindowId = 0;
+    const bool nav_keyboard_active = (g.IO.ConfigFlags & ImGuiConfigFlags_NavEnableKeyboard) != 0;
+    if (!nav_keyboard_active || g.NavWindow == NULL)
+        return;
+
+    const bool request = IsKeyReleased(ImGuiKey_Menu, ImGuiKeyOwner_NoOwner) || (IsKeyPressed(ImGuiKey_F10, ImGuiInputFlags_None, ImGuiKeyOwner_NoOwner) && g.IO.KeyMods == ImGuiMod_Shift);
+    if (!request)
+        return;
+    g.NavOpenContextMenuItemId = g.NavId;
+    g.NavOpenContextMenuWindowId = g.NavWindow->ID;
+
+    // Allow triggering for Begin()..BeginPopupContextItem(). A possible alternative would be to use g.NavLayer == ImGuiNavLayer_Menu.
+    if (g.NavId == g.NavWindow->GetID("#CLOSE") || g.NavId == g.NavWindow->GetID("#COLLAPSE"))
+        g.NavOpenContextMenuItemId = g.NavWindow->MoveId;
+
+    g.NavInputSource = ImGuiInputSource_Keyboard;
+    SetNavCursorVisibleAfterMove();
 }
 
 // Handle PageUp/PageDown/Home/End keys
