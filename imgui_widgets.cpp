@@ -4402,6 +4402,7 @@ void ImGui::PopPasswordFont()
 // Return false to discard a character.
 static bool InputTextFilterCharacter(ImGuiContext* ctx, ImGuiInputTextState* state, unsigned int* p_char, ImGuiInputTextCallback callback, void* user_data, bool input_source_is_clipboard)
 {
+    IM_ASSERT(state != NULL);
     unsigned int c = *p_char;
     ImGuiInputTextFlags flags = state->Flags;
 
@@ -5368,7 +5369,7 @@ bool ImGui::InputTextEx(const char* label, const char* hint, char* buf, int buf_
             callback_data.ID = id;
             callback_data.Flags = flags;
             callback_data.EventFlag = ImGuiInputTextFlags_CallbackResize;
-            callback_data.EventActivated = (g.ActiveId == state->ID && g.ActiveIdIsJustActivated);
+            callback_data.EventActivated = (state != NULL && g.ActiveId == state->ID && g.ActiveIdIsJustActivated);
             callback_data.Buf = buf;
             callback_data.BufTextLen = apply_new_text_length;
             callback_data.BufSize = ImMax(buf_size, apply_new_text_length + 1);
