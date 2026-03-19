@@ -8170,10 +8170,13 @@ void ImGui::MultiSelectItemHeader(ImGuiID id, bool* p_selected, ImGuiButtonFlags
     {
         ImGuiButtonFlags button_flags = *p_button_flags;
         button_flags |= ImGuiButtonFlags_NoHoveredOnFocus;
-        if ((!selected || (g.ActiveId == id && g.ActiveIdHasBeenPressedBefore)) && !(ms->Flags & ImGuiMultiSelectFlags_SelectOnClickRelease))
-            button_flags = (button_flags | ImGuiButtonFlags_PressedOnClick) & ~ImGuiButtonFlags_PressedOnClickRelease;
-        else
+        button_flags &= ~(ImGuiButtonFlags_PressedOnClick | ImGuiButtonFlags_PressedOnClickRelease);
+        if (ms->Flags & ImGuiMultiSelectFlags_SelectOnClickAlways)
+            button_flags |= ImGuiButtonFlags_PressedOnClick;
+        else if (ms->Flags & ImGuiMultiSelectFlags_SelectOnClickRelease)
             button_flags |= ImGuiButtonFlags_PressedOnClickRelease;
+        else // ImGuiMultiSelectFlags_SelectOnAuto
+            button_flags |= (!selected || (g.ActiveId == id && g.ActiveIdHasBeenPressedBefore)) ? ImGuiButtonFlags_PressedOnClick : ImGuiButtonFlags_PressedOnClickRelease;
         *p_button_flags = button_flags;
     }
 }
@@ -8293,7 +8296,7 @@ void ImGui::MultiSelectItemFooter(ImGuiID id, bool* p_selected, bool* p_pressed)
         // Box-select
         ImGuiInputSource input_source = (g.NavJustMovedToId == id || g.NavActivateId == id) ? g.NavInputSource : ImGuiInputSource_Mouse;
         if (flags & (ImGuiMultiSelectFlags_BoxSelect1d | ImGuiMultiSelectFlags_BoxSelect2d))
-            if (selected == false && !g.BoxSelectState.IsActive && !g.BoxSelectState.IsStarting && input_source == ImGuiInputSource_Mouse && g.IO.MouseClickedCount[0] == 1)
+            if (!g.BoxSelectState.IsActive && !g.BoxSelectState.IsStarting && input_source == ImGuiInputSource_Mouse && g.IO.MouseClickedCount[0] == 1)
                 BoxSelectPreStartDrag(ms->BoxSelectId, item_data);
 
         //----------------------------------------------------------------------------------------
