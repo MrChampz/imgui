@@ -3044,6 +3044,7 @@ struct IMGUI_API ImGuiTable
     ImGuiTableColumnIdx         ResizedColumn;              // Index of column being resized. Reset when InstanceCurrent==0.
     ImGuiTableColumnIdx         LastResizedColumn;          // Index of column being resized from previous frame.
     ImGuiTableColumnIdx         HeldHeaderColumn;           // Index of column header being held.
+    ImGuiTableColumnIdx         LastHeldHeaderColumn;       // Index of column header being held from previous frame.
     ImGuiTableColumnIdx         ReorderColumn;              // Index of column being reordered. (not cleared)
     ImGuiTableColumnIdx         ReorderColumnDstOrder;      // Requested display order of column being reordered.
     ImGuiTableColumnIdx         LeftMostEnabledColumn;      // Index of left-most non-hidden column.
@@ -3055,7 +3056,6 @@ struct IMGUI_API ImGuiTable
     ImGuiTableColumnIdx         FreezeRowsCount;            // Actual frozen row count (== FreezeRowsRequest, or == 0 when no scrolling offset)
     ImGuiTableColumnIdx         FreezeColumnsRequest;       // Requested frozen columns count
     ImGuiTableColumnIdx         FreezeColumnsCount;         // Actual frozen columns count (== FreezeColumnsRequest, or == 0 when no scrolling offset)
-    ImGuiTableColumnIdx         LeftMostUnfrozenOrder;      // Display order of the left-most unfrozen column, which is used to determine where the freezing line should be.
     ImGuiTableColumnIdx         RowCellDataCurrent;         // Index of current RowCellData[] entry in current row
     ImGuiTableDrawChannelIdx    DummyDrawChannel;           // Redirect non-visible columns here.
     ImGuiTableDrawChannelIdx    Bg2DrawChannelCurrent;      // For Selectable() and other widgets drawing across columns after the freezing line. Index within DrawSplitter.Channels[]
