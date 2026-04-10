@@ -7505,6 +7505,11 @@ bool ImGui::Selectable(const char* label, bool selected, ImGuiSelectableFlags fl
     if (is_visible)
         RenderTextClipped(pos, ImVec2(ImMin(pos.x + size.x, window->WorkRect.Max.x), pos.y + size.y), label, NULL, &label_size, style.SelectableTextAlign, &bb);
 
+#ifdef IMGUI_DEBUG_BOXSELECT
+    if (g.BoxSelectState.UnclipMode)
+        GetForegroundDrawList()->AddText(pos, IM_COL32(255,255,0,200), label);
+#endif
+
     // Automatically close popups
     if (pressed && !auto_selected && (window->Flags & ImGuiWindowFlags_Popup) && !(flags & ImGuiSelectableFlags_NoAutoClosePopups) && (g.LastItemData.ItemFlags & ImGuiItemFlags_AutoClosePopups))
         CloseCurrentPopup();
@@ -7831,19 +7836,24 @@ bool ImGui::BeginBoxSelect(const ImRect& scope_rect, ImGuiWindow* window, ImGuiI
     bs->BoxSelectRectCurr.Min = ImMin(start_pos_abs, curr_end_pos_abs);
     bs->BoxSelectRectCurr.Max = ImMax(start_pos_abs, curr_end_pos_abs);
 
-    // Box-select 2D mode detects horizontal changes (vertical ones are already picked by Clipper)
-    // Storing an extra rect used by widgets supporting box-select.
+    // Box-select 2D mode detects change of the rectangle.
+    // Storing unclip rect used by widgets supporting box-select.
     if (ms_flags & ImGuiMultiSelectFlags_BoxSelect2d)
-        if (bs->BoxSelectRectPrev.Min.x != bs->BoxSelectRectCurr.Min.x || bs->BoxSelectRectPrev.Max.x != bs->BoxSelectRectCurr.Max.x)
-        {
+    {
+        if (bs->BoxSelectRectPrev.Min != bs->BoxSelectRectCurr.Min || bs->BoxSelectRectPrev.Max != bs->BoxSelectRectCurr.Max)
             bs->UnclipMode = true;
-            bs->UnclipRect = bs->BoxSelectRectPrev; // FIXME-OPT: UnclipRect x coordinates could be intersection of Prev and Curr rect on X axis.
-            bs->UnclipRect.Add(bs->BoxSelectRectCurr);
-        }
 
-    //GetForegroundDrawList()->AddRect(bs->UnclipRect.Min, bs->UnclipRect.Max, IM_COL32(255,0,0,200), 0.0f, 0, 3.0f);
+        // Always update rect even if we don't use it.
+        bs->UnclipRect = bs->BoxSelectRectPrev; // FIXME-OPT: UnclipRect X coordinates could be intersection of Prev and Curr rect on X axis.
+        bs->UnclipRect.Add(bs->BoxSelectRectCurr);
+    }
+
+#ifdef IMGUI_DEBUG_BOXSELECT
+    if (ms_flags & ImGuiMultiSelectFlags_BoxSelect2d)
+        GetForegroundDrawList()->AddRect(bs->UnclipRect.Min, bs->UnclipRect.Max, bs->UnclipMode ? IM_COL32(255,255,0,200) : IM_COL32(255,0,0,200), 0.0f, 0, 4.0f);
     //GetForegroundDrawList()->AddRect(bs->BoxSelectRectPrev.Min, bs->BoxSelectRectPrev.Max, IM_COL32(255,0,0,200), 0.0f, 0, 3.0f);
     //GetForegroundDrawList()->AddRect(bs->BoxSelectRectCurr.Min, bs->BoxSelectRectCurr.Max, IM_COL32(0,255,0,200), 0.0f, 0, 1.0f);
+#endif
     return true;
 }
 
@@ -8040,7 +8050,7 @@ ImGuiMultiSelectIO* ImGui::BeginMultiSelect(ImGuiMultiSelectFlags flags, int sel
             storage->LastSelectionSize = 0;
     }
     ms->LoopRequestSetAll = request_select_all ? 1 : request_clear ? 0 : -1;
-    ms->LastSubmittedItem = ImGuiSelectionUserData_Invalid;
+    //ms->PrevSubmittedItem = ImGuiSelectionUserData_Invalid;
 
     if (g.DebugLogFlags & ImGuiDebugLogFlags_EventSelection)
         DebugLogMultiSelectRequests("BeginMultiSelect", &ms->IO);
@@ -8143,6 +8153,8 @@ void ImGui::SetNextItemSelectionUserData(ImGuiSelectionUserData selection_user_d
         g.NextItemData.ItemFlags |= ImGuiItemFlags_HasSelectionUserData | ImGuiItemFlags_IsMultiSelect;
         if (ms->IO.RangeSrcItem == selection_user_data)
             ms->RangeSrcPassedBy = true;
+        //ms->PrevSubmittedItem = ms->CurrSubmittedItem; // Can't rely on previous g.NextItemData.SelectionUserData because NextItemData is not restored on nested multi-select.
+        //ms->CurrSubmittedItem = selection_user_data;
     }
     else
     {
@@ -8304,6 +8316,9 @@ void ImGui::MultiSelectItemFooter(ImGuiID id, bool* p_selected, bool* p_pressed)
                 {
                     selected = !selected;
                     MultiSelectAddSetRange(ms, selected, +1, item_data, item_data);
+#ifdef IMGUI_DEBUG_BOXSELECT
+                    GetForegroundDrawList()->AddRectFilled(g.LastItemData.Rect.Min, g.LastItemData.Rect.Max, selected ? IM_COL32(0, 255, 0, 200) : IM_COL32(255, 0, 0, 200));
+#endif
                 }
                 storage->LastSelectionSize = ImMax(storage->LastSelectionSize + 1, 1);
             }
@@ -8417,7 +8432,6 @@ void ImGui::MultiSelectItemFooter(ImGuiID id, bool* p_selected, bool* p_pressed)
     }
     if (storage->NavIdItem == item_data)
         ms->NavIdPassedBy = true;
-    ms->LastSubmittedItem = item_data;
 
     *p_selected = selected;
     *p_pressed = pressed;
@@ -8433,15 +8447,20 @@ void ImGui::MultiSelectAddSetAll(ImGuiMultiSelectTempData* ms, bool selected)
 void ImGui::MultiSelectAddSetRange(ImGuiMultiSelectTempData* ms, bool selected, int range_dir, ImGuiSelectionUserData first_item, ImGuiSelectionUserData last_item)
 {
     // Merge contiguous spans into same request (unless NoRangeSelect is set which guarantees single-item ranges)
+    // FIXME-OPT: Disabled on 2026/04/09 as this would break with any form of coarse clipping that we don't know about (e.g. TableNextColumn() return value).
+    // The low-hanging fruit would be to know that ImGuiSelectionUserData are sequential indices, in which case we can trivially compare PrevSubmittedItem + RangeDir == FirstItem.
+    // User can always perform this merge if required.
+#if 0
     if (ms->IO.Requests.Size > 0 && first_item == last_item && (ms->Flags & ImGuiMultiSelectFlags_NoRangeSelect) == 0)
     {
         ImGuiSelectionRequest* prev = &ms->IO.Requests.Data[ms->IO.Requests.Size - 1];
-        if (prev->Type == ImGuiSelectionRequestType_SetRange && prev->RangeLastItem == ms->LastSubmittedItem && prev->Selected == selected)
+        if (prev->Type == ImGuiSelectionRequestType_SetRange && prev->RangeLastItem == ms->PrevSubmittedItem && prev->Selected == selected)
         {
             prev->RangeLastItem = last_item;
             return;
         }
     }
+#endif
 
     ImGuiSelectionRequest req = { ImGuiSelectionRequestType_SetRange, selected, (ImS8)range_dir, (range_dir > 0) ? first_item : last_item, (range_dir > 0) ? last_item : first_item };
     ms->IO.Requests.push_back(req); // Add new request
