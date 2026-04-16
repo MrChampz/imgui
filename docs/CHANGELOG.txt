@@ -59,6 +59,8 @@ Other Changes:
   - Child windows with only ImGuiChildFlags_AutoResizeY flag keep using the proportional
     default ItemWidth. (#9355)
 - Multi-Select:
+  - Fixed an issue using Multi-Select within a Table causing column width measurement to
+    be invalid when trailing column contents is not submitted in the last row. (#9341, #8250)
   - Box-Select: fixed an issue using ImGuiMultiSelectFlags_BoxSelect2d mode, where
     items out of view wouldn't be properly selected while scrolling while mouse cursor
     is hovering outside of selection scope. (#7994, #1861, #6518)
@@ -88,11 +90,15 @@ Other Changes:
     a better recoverable error. (#9350)
 - Misc:
   - Minor optimization: reduce redudant label scanning in common widgets.
+  - Added missing Test Engine hooks for PlotXXX(), VSliderXXX(), TableHeader().
 - Backends:
   - Metal: avoid redundant vertex buffer bind in `SetupRenderState()`, which leads
     to validation issue. (#9343) [@Hunam6]
   - Metal: use a dedicated `bufferCacheLock` to avoid crashing when `bufferCache` is
     replaced by a new object while being used for `@synchronize()`. (#9367) [@andygrundman]
+  - SDL2: made `ImGui_ImplSDL2_GetContentScaleForWindow()`/`ImGui_ImplSDL2_GetContentScaleForDisplay()`
+    helpers return a minimum of 1.0f, as some Linux setup seems to report <1.0f value
+    and this breaks scaling border size. (#9369)
 
 
 -----------------------------------------------------------------------
