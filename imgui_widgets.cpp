@@ -7508,8 +7508,7 @@ bool ImGui::Selectable(const char* label, bool selected, ImGuiSelectableFlags fl
         RenderTextClipped(pos, ImVec2(ImMin(pos.x + size.x, window->WorkRect.Max.x), pos.y + size.y), label, label_end, &label_size, style.SelectableTextAlign, &bb);
 
 #ifdef IMGUI_DEBUG_BOXSELECT
-    if (g.BoxSelectState.UnclipMode)
-        GetForegroundDrawList()->AddText(pos, IM_COL32(255,255,0,200), label);
+    if (g.BoxSelectState.UnclipMode) { GetForegroundDrawList()->AddText(pos, IM_COL32(255,255,0,200), label, label_end); }
 #endif
 
     // Automatically close popups
@@ -7827,7 +7826,7 @@ bool ImGui::BeginBoxSelect(const ImRect& scope_rect, ImGuiWindow* window, ImGuiI
         return false;
 
     // Current frame absolute prev/current rectangles are used to toggle selection.
-    // They are derived from positions relative to scrolling space.
+    // They are derived from positions relative to scrolling space, so "previous" rectangle is reprojected for current frame coordinates.
     ImVec2 start_pos_abs = WindowPosRelToAbs(window, bs->StartPosRel);
     ImVec2 prev_end_pos_abs = WindowPosRelToAbs(window, bs->EndPosRel); // Clamped already
     ImVec2 curr_end_pos_abs = g.IO.MousePos;
@@ -7837,26 +7836,68 @@ bool ImGui::BeginBoxSelect(const ImRect& scope_rect, ImGuiWindow* window, ImGuiI
     bs->BoxSelectRectPrev.Max = ImMax(start_pos_abs, prev_end_pos_abs);
     bs->BoxSelectRectCurr.Min = ImMin(start_pos_abs, curr_end_pos_abs);
     bs->BoxSelectRectCurr.Max = ImMax(start_pos_abs, curr_end_pos_abs);
+    //IMGUI_DEBUG_LOG("StartPosRel (%.2f,%.2f) EndPosRel (%.2f,%.2f) -> (%.2f,%.2f)\n", bs->StartPosRel.x, bs->StartPosRel.y, bs->EndPosRel.x, bs->EndPosRel.y, WindowPosAbsToRel(window, g.IO.MousePos).x, WindowPosAbsToRel(window, g.IO.MousePos).y);
 
     // Box-select 2D mode detects change of the rectangle.
-    // Storing unclip rect used by widgets supporting box-select.
-    if (ms_flags & ImGuiMultiSelectFlags_BoxSelect2d)
+    // Storing unclip rects which will be tested by widgets supporting box-select. Always update rectangles when active (even if we don't use them).
+    // To facilitate understanding this: enable IMGUI_DEBUG_BOXSELECT and visualize all geometry.
+    if (ms_flags & (ImGuiMultiSelectFlags_BoxSelect1d | ImGuiMultiSelectFlags_BoxSelect2d))
     {
-        if (bs->BoxSelectRectPrev.Min != bs->BoxSelectRectCurr.Min || bs->BoxSelectRectPrev.Max != bs->BoxSelectRectCurr.Max)
-            bs->UnclipMode = true;
+        // For both sides, compute the area differing between Prev and Curr rectangles.
+        bs->UnclipRects[0] = bs->UnclipRects[1] = ImRect(+FLT_MAX, +FLT_MAX, -FLT_MAX, -FLT_MAX);
+        for (int side = 0; side < 2; side++)
+        {
+            ImVec2 d_min = (side == 0) ? ImMin(bs->BoxSelectRectCurr.Min, bs->BoxSelectRectPrev.Min) : ImMin(bs->BoxSelectRectCurr.Max, bs->BoxSelectRectPrev.Max);
+            ImVec2 d_max = (side == 0) ? ImMax(bs->BoxSelectRectCurr.Min, bs->BoxSelectRectPrev.Min) : ImMax(bs->BoxSelectRectCurr.Max, bs->BoxSelectRectPrev.Max);
+            if (d_min.x != d_max.x)
+            {
+                bs->UnclipRects[0].AddX(d_min.x);
+                bs->UnclipRects[0].AddX(d_max.x);
+            }
+            if (d_min.y != d_max.y)
+            {
+                bs->UnclipRects[1].AddY(d_min.y);
+                bs->UnclipRects[1].AddY(d_max.y);
+            }
+        }
 
-        // Always update rect even if we don't use it.
-        bs->UnclipRect = bs->BoxSelectRectPrev; // FIXME-OPT: UnclipRect X coordinates could be intersection of Prev and Curr rect on X axis.
-        bs->UnclipRect.Add(bs->BoxSelectRectCurr);
+        ImRect box_select_intersection = bs->BoxSelectRectPrev;
+        box_select_intersection.Add(bs->BoxSelectRectCurr);
+        if (ms_flags & ImGuiMultiSelectFlags_BoxSelect2d)
+            if (bs->BoxSelectRectPrev.Min.x != bs->BoxSelectRectCurr.Min.x || bs->BoxSelectRectPrev.Max.x != bs->BoxSelectRectCurr.Max.x)
+            {
+                bs->UnclipRects[0].AddY(box_select_intersection.Min.y);
+                bs->UnclipRects[0].AddY(box_select_intersection.Max.y);
+            }
+        if (ms_flags & (ImGuiMultiSelectFlags_BoxSelect1d | ImGuiMultiSelectFlags_BoxSelect2d))
+            if (bs->BoxSelectRectPrev.Min.y != bs->BoxSelectRectCurr.Min.y || bs->BoxSelectRectPrev.Max.y != bs->BoxSelectRectCurr.Max.y)
+            {
+                bs->UnclipRects[1].AddX(box_select_intersection.Min.x);
+                bs->UnclipRects[1].AddX(box_select_intersection.Max.x);
+            }
+
+        // Merge both rectangles into one.
+        // FIXME-OPT: When UnclipRect.Area() is much larger than the sum of UnclipRects[0]/[1] Areas, widgets should
+        // ideally first use UnclipRect as a first coarse cull layer + the individual ones as a second validation.
+        bs->UnclipRect = bs->UnclipRects[0];
+        bs->UnclipRect.Add(bs->UnclipRects[1]);
+        if (!bs->UnclipRect.IsInverted() && (!window->ClipRect.Contains(bs->UnclipRect.Min) || !window->ClipRect.Contains(bs->UnclipRect.Max))) // !! Don't use Contains(ImRect)
+            bs->UnclipMode = true;
+        if (bs->UnclipMode && g.CurrentTable != NULL)
+            TableApplyExternalUnclipRect(g.CurrentTable, bs->UnclipRect); // No need submitting both
     }
-    if (bs->UnclipMode && g.CurrentTable != NULL)
-        TableApplyExternalUnclipRect(g.CurrentTable, bs->UnclipRect);
 
 #ifdef IMGUI_DEBUG_BOXSELECT
-    if (ms_flags & ImGuiMultiSelectFlags_BoxSelect2d)
-        GetForegroundDrawList()->AddRect(bs->UnclipRect.Min, bs->UnclipRect.Max, bs->UnclipMode ? IM_COL32(255,255,0,200) : IM_COL32(255,0,0,200), 0.0f, 0, 4.0f);
+    //GetForegroundDrawList()->AddRect(scope_rect.Min, scope_rect.Max, IM_COL32(0, 255, 0, 200), 0.0f, 0, 4.0f);
     //GetForegroundDrawList()->AddRect(bs->BoxSelectRectPrev.Min, bs->BoxSelectRectPrev.Max, IM_COL32(255,0,0,200), 0.0f, 0, 3.0f);
     //GetForegroundDrawList()->AddRect(bs->BoxSelectRectCurr.Min, bs->BoxSelectRectCurr.Max, IM_COL32(0,255,0,200), 0.0f, 0, 1.0f);
+    if (ms_flags & (ImGuiMultiSelectFlags_BoxSelect1d | ImGuiMultiSelectFlags_BoxSelect2d))
+    {
+        for (ImRect& unclip_r : bs->UnclipRects)
+            if (!unclip_r.IsInverted())
+                GetForegroundDrawList()->AddRect(unclip_r.Min, unclip_r.Max, bs->UnclipMode ? IM_COL32(255, 255, 0, 200) : IM_COL32(255, 0, 0, 200), 0.0f, 0, 4.0f);
+        GetForegroundDrawList()->AddRect(bs->UnclipRect.Min, bs->UnclipRect.Max, bs->UnclipMode ? IM_COL32(255, 255, 0, 200) : IM_COL32(255, 0, 0, 200), 0.0f, 0, 2.0f);
+    }
 #endif
     return true;
 }
@@ -7873,8 +7914,9 @@ void ImGui::EndBoxSelect(const ImRect& scope_rect, ImGuiMultiSelectFlags ms_flag
     bs->EndPosRel = WindowPosAbsToRel(window, ImClamp(g.IO.MousePos, scope_rect.Min, scope_rect.Max)); // Clamp stored position according to current scrolling view
     ImRect box_select_r = bs->BoxSelectRectCurr;
     box_select_r.ClipWith(scope_rect);
-    window->DrawList->AddRectFilled(box_select_r.Min, box_select_r.Max, GetColorU32(ImGuiCol_SeparatorHovered, 0.30f)); // FIXME-MULTISELECT: Styling
-    window->DrawList->AddRect(box_select_r.Min, box_select_r.Max, GetColorU32(ImGuiCol_NavCursor)); // FIXME-MULTISELECT FIXME-DPI: Styling
+    ImGuiWindow* draw_window = FindFrontMostVisibleChildWindow(window);
+    draw_window->DrawList->AddRectFilled(box_select_r.Min, box_select_r.Max, GetColorU32(ImGuiCol_SeparatorHovered, 0.30f)); // FIXME-MULTISELECT: Styling
+    draw_window->DrawList->AddRect(box_select_r.Min, box_select_r.Max, GetColorU32(ImGuiCol_NavCursor)); // FIXME-MULTISELECT FIXME-DPI: Styling
 
     // Scroll
     const bool enable_scroll = (ms_flags & ImGuiMultiSelectFlags_ScopeWindow) && (ms_flags & ImGuiMultiSelectFlags_BoxSelectNoScroll) == 0;
@@ -7973,10 +8015,12 @@ ImGuiMultiSelectIO* ImGui::BeginMultiSelect(ImGuiMultiSelectFlags flags, int sel
     ms->Clear();
     ms->FocusScopeId = id;
     ms->Flags = flags;
-    ms->IsFocused = (ms->FocusScopeId == g.NavFocusScopeId);
     ms->BackupCursorMaxPos = window->DC.CursorMaxPos;
-    ms->ScopeRectMin = window->DC.CursorMaxPos = window->DC.CursorPos; // CalcScopeRect() for ImGuiMultiSelectFlags_ScopeRect will measure in EndMultiSelect().
+    ms->ScopeRectMin = window->DC.CursorPos;
+    if (flags & ImGuiMultiSelectFlags_ScopeRect)
+        window->DC.CursorMaxPos = ms->ScopeRectMin; // CalcScopeRect() for ImGuiMultiSelectFlags_ScopeRect will measure in EndMultiSelect().
     PushFocusScope(ms->FocusScopeId);
+    ms->IsFocused = IsInNavFocusRoute(g.CurrentFocusScopeId);
     if (flags & ImGuiMultiSelectFlags_ScopeWindow) // Mark parent child window as navigable into, with highlight. Assume user will always submit interactive items.
         window->DC.NavLayersActiveMask |= 1 << ImGuiNavLayer_Main;
 
@@ -8104,7 +8148,7 @@ ImGuiMultiSelectIO* ImGui::EndMultiSelect()
     // Clear selection when clicking void?
     // We specifically test for IsMouseDragPastThreshold(0) == false to allow box-selection!
     // The InnerRect test is necessary for non-child/decorated windows.
-    bool scope_hovered = IsWindowHovered() && window->InnerRect.Contains(g.IO.MousePos);
+    bool scope_hovered = window->InnerRect.Contains(g.IO.MousePos) && IsWindowHovered(ImGuiHoveredFlags_ChildWindows);
     if (scope_hovered && (ms->Flags & ImGuiMultiSelectFlags_ScopeRect))
         scope_hovered &= scope_rect.Contains(g.IO.MousePos);
     if (scope_hovered && g.HoveredId == 0 && g.ActiveId == 0)
