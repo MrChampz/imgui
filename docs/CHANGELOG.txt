@@ -152,6 +152,13 @@ Other Changes:
     items straying out of columns boundaries. (#7994, #2221)
   - Box-Select + Tables: fixed an issue when calling `BeginMultiSelect()` in a table
     before layout has been locked (first row or headers row submitted). (#8250)
+- Menus:
+  - BeginMenu()/MenuItem(): fixed accidental triggering of child menu items when
+    opening a menu inside a small host window forcing the child menu window to be
+    repositioned under the mouse cursor. (#8233, #9394)
+    Done by reworking BeginMenu()/MenuItem(): they previously avoiding taking
+    ActiveID + key/click ownership (in order to allow releasing button on another item).
+    Now they take them and release them once the mouse is moved outside item boundaries.
 - Inputs:
   - SetItemKeyOwner(): return true if ownership has been requested, which typically
     needs to to checked for gating further tests. This is important as the function
@@ -161,9 +168,11 @@ Other Changes:
     expected while not having item react if a scroll wheel is actively in progress.
     May be subject to further redesign, e.g. conditional flags. Feedback welcome!
 - Style:
+  - Checkbox: added ImGuiCol_CheckboxSelectedBg to change or accentuate the
+    background color of checked/mixed checkboxes. (#9392)
+  - Added ImGuiStyleVar_DragDropTargetRounding. (#9056)
   - Fixed vertical scrollbar top coordinates when using thick borders on windows
     with no title bar and no menu bar. (#9366)
-  - Added ImGuiStyleVar_DragDropTargetRounding. (#9056)
 - Fonts:
   - imgui_freetype: add FreeType headers & compiled version in 'About Dear ImGui' details.
   - Assert when using MergeMode with an explicit size over a target font with an implicit
@@ -204,7 +213,7 @@ Other Changes:
   - SDL2: made `ImGui_ImplSDL2_GetContentScaleForWindow()`/`ImGui_ImplSDL2_GetContentScaleForDisplay()`
     helpers return a minimum of 1.0f, as some Linux setup seems to report <1.0f value
     and this breaks scaling border size. (#9369)
-  - WebGPU: always use SPIR-V shader on WGVK, as it cannot be detected at runtime. (#9316, #9246, #9257)
+  - WebGPU: rework choice/detection of using WGSL/SPIR-V shader on WGVK. (#9316, #9246, #9257, #9387)
 - Examples:
   - Update VS toolset in all .vcxproj from VS2015 (v140) to VS2017 (v141). The later is the
     first that supports vcpkg. Onward we will likely stop testing building the library with VS2015.
