@@ -45,7 +45,6 @@ Index of this file:
 // - TableSetupScrollFreeze()                   user submit scroll freeze information (optional)
 //-----------------------------------------------------------------------------
 // - TableUpdateLayout() [Internal]             followup to BeginTable(): setup everything: widths, columns positions, clipping rectangles. Automatically called by the FIRST call to TableNextRow() or TableHeadersRow().
-//    | TableLoadSettingsForColumns()           - on settings load
 //    | TableApplyQueuedRequests()              - apply queued resizing/reordering/hiding requests
 //    | - TableSetColumnWidth()                 - apply resizing width (for mouse resize, often requested by previous frame)
 //    |    - TableUpdateColumnsWeightFromWidth()- recompute columns weights (of stretch columns) from their respective width
@@ -4255,7 +4254,7 @@ void ImGui::DebugNodeTableSettings(ImGuiTableSettings* settings, ImGuiTable* tab
 #else // #ifndef IMGUI_DISABLE_DEBUG_TOOLS
 
 void ImGui::DebugNodeTable(ImGuiTable*) {}
-void ImGui::DebugNodeTableSettings(ImGuiTableSettings*, ImGuiTable* table) {}
+void ImGui::DebugNodeTableSettings(ImGuiTableSettings*, ImGuiTable*) {}
 
 #endif
 
