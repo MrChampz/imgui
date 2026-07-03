@@ -116,6 +116,17 @@ Other Changes:
     The use of this is discouraged because it can easily create problems rendering e.g.
     contiguous selection.
   - Scale the NavCursor border thickness when using large values with `ScallAllSizes()`.
+- Settings:
+  - Windows/Tables settings entries can now record the last used date in YYYYMMDD format,
+    allowing tools to run to e.g. delete entries that haven't been used in X months. (#9460)
+  - Added bool io.ConfigIniSettingsSaveLastUsedDate to disable saving that info. (#9460)
+  - Added int io.ConfigIniSettingsAutoDiscardMonths to enable a mode where unused settings
+    are automatically discard after xx months. (#9460)
+  - Added a trimming tool under Metrics->Settings, along with a yet-unexposed function.
+  - The current system date is fed through ImGuiPlatformIO::Platform_SessionDate,
+    which is automatically set by a call to time() done during context creation. (#9460)
+  - Added IMGUI_DISABLE_TIME_FUNCTIONS to disable setting platform_io.Platform_SessionDate.
+    A custom backend may still set it manually. (#9460)
 - DrawList:
   - Minor optimization to `AddLine()`, `AddLineH()`, `AddLineV()` functions. (#4091)
   - Added `ImDrawListFlags_TextNoPixelSnap` to disable snapping of AddText()
@@ -142,6 +153,10 @@ Other Changes:
       to spawn multiple-thread to manage OpenGL. (#9403)
 - Examples: 
   - Android: update to AGP 9.2.0 to support Gradle 9.6.0.
+  - OpenGL3+GLFW/SDL2/SDL3: allow Wine compatibility by passing empty GLSL version
+    string to ImGui_ImplOpenGL3_Init() to let backend decide of a GLSL version based
+    on actual GL version obtained. (#9427, #6577) [@perminovVS]
+  - OpenGL3+Win32: rework context creation to allow Wine compatibility. (#9427, #6577) [@perminovVS]
   - SDL2/SDL3: use `SDL_GetWindowSizeInPixels()` to create frame-buffers. Fixes issues
     with non-fractional framebuffer size on Wayland. (#8761, #9124) [@billtran1632001]
   - SDL3+Metal4: added new example. (#9458, #9451) [@AmelieHeinrich]

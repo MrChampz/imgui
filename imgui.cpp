@@ -1243,6 +1243,12 @@ IMPLEMENTING SUPPORT for ImGuiBackendFlags_RendererHasTextures:
 // System includes
 #include <stdio.h>      // vsnprintf, sscanf, printf
 #include <stdint.h>     // intptr_t
+#ifndef IMGUI_DISABLE_TIME_FUNCTIONS
+#include <time.h>       // time(), localtime_r()/localtime_s()
+#if defined(_WIN32)
+static tm* localtime_r(const time_t* timep, tm* result) { return localtime_s(result, timep) == 0 ? result : NULL; }
+#endif
+#endif
 
 // [Windows] On non-Visual Studio compilers, we default to IMGUI_DISABLE_WIN32_DEFAULT_IME_FUNCTIONS unless explicitly enabled
 #if defined(_WIN32) && !defined(_MSC_VER) && !defined(IMGUI_ENABLE_WIN32_DEFAULT_IME_FUNCTIONS) && !defined(IMGUI_DISABLE_WIN32_DEFAULT_IME_FUNCTIONS)
@@ -1359,6 +1365,7 @@ static void             AddWindowToSortBuffer(ImVector<ImGuiWindow*>* out_sorted
 
 // Settings
 static void             WindowSettingsHandler_ClearAll(ImGuiContext*, ImGuiSettingsHandler*);
+static void             WindowSettingsHandler_Cleanup(ImGuiContext*, ImGuiSettingsHandler*, ImGuiSettingsCleanupArgs* args);
 static void*            WindowSettingsHandler_ReadOpen(ImGuiContext*, ImGuiSettingsHandler*, const char* name);
 static void             WindowSettingsHandler_ReadLine(ImGuiContext*, ImGuiSettingsHandler*, void* entry, const char* line);
 static void             WindowSettingsHandler_ApplyAll(ImGuiContext*, ImGuiSettingsHandler*);
@@ -1677,6 +1684,8 @@ ImGuiIO::ImGuiIO()
     ConfigWindowsMoveFromTitleBarOnly = false;
     ConfigWindowsCopyContentsWithCtrlC = false;
     ConfigScrollbarScrollByPage = true;
+    ConfigIniSettingsSaveLastUsedDate = true;
+    ConfigIniSettingsAutoDiscardMonths = 0;
     ConfigMemoryCompactTimer = 60.0f;
     ConfigDebugIsDebuggerPresent = false;
     ConfigDebugHighlightIdConflicts = true;
@@ -4435,6 +4444,7 @@ void ImGui::Initialize()
         ini_handler.TypeName = "Window";
         ini_handler.TypeHash = ImHashStr("Window");
         ini_handler.ClearAllFn = WindowSettingsHandler_ClearAll;
+        ini_handler.CleanupFn =  WindowSettingsHandler_Cleanup;
         ini_handler.ReadOpenFn = WindowSettingsHandler_ReadOpen;
         ini_handler.ReadLineFn = WindowSettingsHandler_ReadLine;
         ini_handler.ApplyAllFn = WindowSettingsHandler_ApplyAll;
@@ -4451,6 +4461,14 @@ void ImGui::Initialize()
     g.PlatformIO.Platform_SetClipboardTextFn = Platform_SetClipboardTextFn_DefaultImpl;
     g.PlatformIO.Platform_OpenInShellFn = Platform_OpenInShellFn_DefaultImpl;
     g.PlatformIO.Platform_SetImeDataFn = Platform_SetImeDataFn_DefaultImpl;
+
+    // Setup session starting date
+#ifndef IMGUI_DISABLE_TIME_FUNCTIONS
+    const time_t session_time = time(NULL);
+    struct tm session_datetime = {};
+    if (localtime_r(&session_time, &session_datetime))
+        g.PlatformIO.Platform_SessionDate = (session_datetime.tm_year + 1900) * 10000 + (session_datetime.tm_mon + 1) * 100 + session_datetime.tm_mday;
+#endif
 
     // Create default viewport
     ImGuiViewportP* viewport = IM_NEW(ImGuiViewportP)();
@@ -5568,6 +5586,7 @@ void ImGui::NewFrame()
 
     g.Time += g.IO.DeltaTime;
     g.FrameCount += 1;
+    g.SessionDate = ImGuiPackedDate(g.PlatformIO.Platform_SessionDate);
     g.TooltipOverrideCount = 0;
     g.WindowsActiveCount = 0;
     g.MenusIdSubmittedThisFrame.resize(0);
@@ -6692,6 +6711,7 @@ static void InitOrLoadWindowSettings(ImGuiWindow* window, ImGuiWindowSettings* s
 {
     // Initial window state with e.g. default/arbitrary window position
     // Use SetNextWindowPos() with the appropriate condition flag to change the initial position of a window.
+    ImGuiContext& g = *GImGui;
     const ImGuiViewport* main_viewport = ImGui::GetMainViewport();
     window->Pos = main_viewport->Pos + ImVec2(60, 60);
     window->Size = window->SizeFull = ImVec2(0, 0);
@@ -6699,6 +6719,7 @@ static void InitOrLoadWindowSettings(ImGuiWindow* window, ImGuiWindowSettings* s
 
     if (settings != NULL)
     {
+        settings->LastUsedDate = g.SessionDate;
         SetWindowConditionAllowFlags(window, ImGuiCond_FirstUseEver, false);
         ApplyWindowSettings(window, settings);
     }
@@ -15674,6 +15695,19 @@ void ImGui::ClearIniSettings()
             handler.ClearAllFn(&g, &handler);
 }
 
+void ImGui::CleanupIniSettings(ImGuiSettingsCleanupArgs* args)
+{
+    ImGuiContext& g = *GImGui;
+    if (g.PlatformIO.Platform_SessionDate == 0)
+        return;
+    ImGuiPackedDate discard_older_than_date_p = g.PlatformIO.Platform_SessionDate;
+    discard_older_than_date_p.SubtractMonths(args->DiscardOlderThanMonths);
+    args->_DiscardOlderThanDate = discard_older_than_date_p.Unpack();
+    for (ImGuiSettingsHandler& handler : g.SettingsHandlers)
+        if (handler.CleanupFn != NULL)
+            handler.CleanupFn(&g, &handler, args);
+}
+
 void ImGui::LoadIniSettingsFromDisk(const char* ini_filename)
 {
     size_t file_data_size = 0;
@@ -15752,6 +15786,9 @@ void ImGui::LoadIniSettingsFromMemory(const char* ini_data, size_t ini_size)
     memcpy(buf, ini_data, ini_size);
 
     // Call post-read handlers
+    ImGuiSettingsCleanupArgs cleanup_args;
+    if (g.IO.ConfigIniSettingsAutoDiscardMonths > 0)
+        cleanup_args.DiscardOlderThanMonths = g.IO.ConfigIniSettingsAutoDiscardMonths;
     for (ImGuiSettingsHandler& handler : g.SettingsHandlers)
         if (handler.ApplyAllFn != NULL)
             handler.ApplyAllFn(&g, &handler);
@@ -15848,6 +15885,18 @@ static void WindowSettingsHandler_ClearAll(ImGuiContext* ctx, ImGuiSettingsHandl
     g.SettingsWindows.clear();
 }
 
+static void WindowSettingsHandler_Cleanup(ImGuiContext* ctx, ImGuiSettingsHandler*, ImGuiSettingsCleanupArgs* args)
+{
+    ImGuiContext& g = *ctx;
+    for (ImGuiWindowSettings* settings = g.SettingsWindows.begin(); settings != NULL; settings = g.SettingsWindows.next_chunk(settings))
+    {
+        if (args->_DiscardOlderThanDate != 0 && settings->LastUsedDate.Unpack() < args->_DiscardOlderThanDate)
+            settings->WantDelete = true;
+        if (args->SetCurrentSessionDateToAll || (args->SetCurrentSessionDateWhenMissingDate && settings->LastUsedDate.IsValid() == false))
+            settings->LastUsedDate = g.SessionDate;
+    }
+}
+
 static void* WindowSettingsHandler_ReadOpen(ImGuiContext*, ImGuiSettingsHandler*, const char* name)
 {
     ImGuiID id = ImHashStr(name);
@@ -15870,6 +15919,7 @@ static void WindowSettingsHandler_ReadLine(ImGuiContext*, ImGuiSettingsHandler*,
     else if (sscanf(line, "Size=%i,%i", &x, &y) == 2)   { settings->Size = ImVec2ih((short)x, (short)y); }
     else if (sscanf(line, "Collapsed=%d", &i) == 1)     { settings->Collapsed = (i != 0); }
     else if (sscanf(line, "IsChild=%d", &i) == 1)       { settings->IsChild = (i != 0); }
+    else if (sscanf(line, "LastUsed=%d", &i) == 1)      { settings->LastUsedDate = i; return; }
 }
 
 // Apply to existing windows (if any)
@@ -15899,6 +15949,7 @@ static void WindowSettingsHandler_WriteAll(ImGuiContext* ctx, ImGuiSettingsHandl
         if (!settings)
         {
             settings = ImGui::CreateNewWindowSettings(window->Name);
+            settings->LastUsedDate = g.SessionDate;
             window->SettingsOffset = g.SettingsWindows.offset_from_ptr(settings);
         }
         IM_ASSERT(settings->ID == window->ID);
@@ -15907,6 +15958,7 @@ static void WindowSettingsHandler_WriteAll(ImGuiContext* ctx, ImGuiSettingsHandl
         settings->IsChild = (window->Flags & ImGuiWindowFlags_ChildWindow) != 0;
         settings->Collapsed = window->Collapsed;
         settings->WantDelete = false;
+        settings->LastUsedDate = g.SessionDate;
     }
 
     // Write to text buffer
@@ -15916,7 +15968,7 @@ static void WindowSettingsHandler_WriteAll(ImGuiContext* ctx, ImGuiSettingsHandl
         if (settings->WantDelete)
             continue;
         const char* settings_name = settings->GetName();
-        buf->appendf("[%s][%s]\n", handler->TypeName, settings_name);
+        buf->appendf("[%s][%s]\n", handler->TypeName, settings_name); // [Window][name]
         if (settings->IsChild)
         {
             buf->appendf("IsChild=1\n");
@@ -15929,6 +15981,9 @@ static void WindowSettingsHandler_WriteAll(ImGuiContext* ctx, ImGuiSettingsHandl
             if (settings->Collapsed)
                 buf->appendf("Collapsed=1\n");
         }
+        if (g.IO.ConfigIniSettingsSaveLastUsedDate)
+            if (int last_used_date = settings->LastUsedDate.Unpack())
+                buf->appendf("LastUsed=%08d\n", last_used_date);
         buf->append("\n");
     }
 }
@@ -16701,6 +16756,7 @@ void ImGui::ShowMetricsWindow(bool* p_open)
 {
     ImGuiContext& g = *GImGui;
     ImGuiIO& io = g.IO;
+    ImGuiPlatformIO& platform_io = g.PlatformIO;
     ImGuiMetricsConfig* cfg = &g.DebugMetricsConfig;
     if (cfg->ShowDebugLog)
         ShowDebugLogWindow(&cfg->ShowDebugLog);
@@ -17033,8 +17089,36 @@ void ImGui::ShowMetricsWindow(bool* p_open)
             Text("\"%s\"", g.IO.IniFilename);
         else
             TextUnformatted("<NULL>");
-        Checkbox("io.ConfigDebugIniSettings", &io.ConfigDebugIniSettings);
         Text("SettingsDirtyTimer %.2f", g.SettingsDirtyTimer);
+
+        int highlight_older_than_date = 0;
+        Text("SessionDate: %d", platform_io.Platform_SessionDate);
+        BeginDisabled(platform_io.Platform_SessionDate == 0);
+        Checkbox("Highlight Entries Older Than", &cfg->SettingsHighlightOldEntries);
+        SetNextItemWidth(GetFontSize() * 8);
+        SameLine();
+        SliderInt("Months", &cfg->SettingsDiscardMonths, 1, 24);
+        if (cfg->SettingsHighlightOldEntries && cfg->SettingsDiscardMonths > 0)
+        {
+            ImGuiPackedDate cutoff_date = platform_io.Platform_SessionDate;
+            cutoff_date.SubtractMonths(cfg->SettingsDiscardMonths);
+            highlight_older_than_date = cutoff_date.Unpack();
+            SameLine();
+            ImGuiSettingsCleanupArgs cleanup_args;
+            cleanup_args.DiscardOlderThanMonths = cfg->SettingsDiscardMonths;
+            if (Button("Discard"))
+                CleanupIniSettings(&cleanup_args);
+        }
+        EndDisabled();
+        Checkbox("io.ConfigDebugIniSettings", &io.ConfigDebugIniSettings);
+
+        struct ScopedHighlightOlderThan
+        {
+            bool Highlight;
+            ScopedHighlightOlderThan(int cutoff_date, ImGuiPackedDate in_date)  { Highlight = cutoff_date != 0 && in_date.Unpack() < cutoff_date; if (Highlight) PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.4f, 0.4f, 1.0f)); }
+            ~ScopedHighlightOlderThan()                                         { if (Highlight) PopStyleColor(); }
+        };
+
         if (TreeNode("SettingsHandlers", "Settings handlers: (%d)", g.SettingsHandlers.Size))
         {
             for (ImGuiSettingsHandler& handler : g.SettingsHandlers)
@@ -17044,14 +17128,20 @@ void ImGui::ShowMetricsWindow(bool* p_open)
         if (TreeNode("SettingsWindows", "Settings packed data: Windows: %d bytes", g.SettingsWindows.size()))
         {
             for (ImGuiWindowSettings* settings = g.SettingsWindows.begin(); settings != NULL; settings = g.SettingsWindows.next_chunk(settings))
+            {
+                ScopedHighlightOlderThan scoped_highlight(highlight_older_than_date, settings->LastUsedDate);
                 DebugNodeWindowSettings(settings);
+            }
             TreePop();
         }
 
         if (TreeNode("SettingsTables", "Settings packed data: Tables: %d bytes", g.SettingsTables.size()))
         {
             for (ImGuiTableSettings* settings = g.SettingsTables.begin(); settings != NULL; settings = g.SettingsTables.next_chunk(settings))
+            {
+                ScopedHighlightOlderThan scoped_highlight(highlight_older_than_date, settings->LastUsedDate);
                 DebugNodeTableSettings(settings, NULL);
+            }
             TreePop();
         }
 
@@ -17866,7 +17956,7 @@ void ImGui::DebugNodeWindowSettings(ImGuiWindowSettings* settings)
 {
     if (settings->WantDelete)
         BeginDisabled();
-    Text("0x%08X \"%s\" Pos (%d,%d) Size (%d,%d) Collapsed=%d",
+    BulletText("0x%08X \"%s\" Pos (%d,%d) Size (%d,%d) Collapsed=%d",
         settings->ID, settings->GetName(), settings->Pos.x, settings->Pos.y, settings->Size.x, settings->Size.y, settings->Collapsed);
     if (settings->WantDelete)
         EndDisabled();
