@@ -15717,8 +15717,9 @@ void ImGui::CleanupIniSettings(ImGuiSettingsCleanupArgs* args)
     discard_older_than_date_p.SubtractMonths(args->DiscardOlderThanMonths);
     args->_DiscardOlderThanDate = discard_older_than_date_p.Unpack();
     for (ImGuiSettingsHandler& handler : g.SettingsHandlers)
-        if (handler.CleanupFn != NULL)
-            handler.CleanupFn(&g, &handler, args);
+        if (args->TypeHashFilter == 0 || handler.TypeHash == args->TypeHashFilter)
+            if (handler.CleanupFn != NULL)
+                handler.CleanupFn(&g, &handler, args);
 }
 
 void ImGui::LoadIniSettingsFromDisk(const char* ini_filename)
@@ -15903,9 +15904,10 @@ static void WindowSettingsHandler_Cleanup(ImGuiContext* ctx, ImGuiSettingsHandle
     ImGuiContext& g = *ctx;
     for (ImGuiWindowSettings* settings = g.SettingsWindows.begin(); settings != NULL; settings = g.SettingsWindows.next_chunk(settings))
     {
-        if (args->_DiscardOlderThanDate != 0 && settings->LastUsedDate.Unpack() < args->_DiscardOlderThanDate)
+        const bool is_valid = settings->LastUsedDate.IsValid();
+        if ((args->_DiscardOlderThanDate != 0 && settings->LastUsedDate.Unpack() < args->_DiscardOlderThanDate) || (args->DiscardWhenMissingDate && !is_valid))
             settings->WantDelete = true;
-        if (args->SetCurrentSessionDateToAll || (args->SetCurrentSessionDateWhenMissingDate && settings->LastUsedDate.IsValid() == false))
+        if (args->SetCurrentSessionDateToAll || (args->SetCurrentSessionDateWhenMissingDate && !is_valid))
             settings->LastUsedDate = g.SessionDate;
     }
 }
