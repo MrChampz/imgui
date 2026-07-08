@@ -395,6 +395,7 @@ IMPLEMENTING SUPPORT for ImGuiBackendFlags_RendererHasTextures:
  When you are not sure about an old symbol or function name, try using the Search/Find function of your IDE to look for comments or references in all imgui files.
  You can read releases logs https://github.com/ocornut/imgui/releases for more details.
 
+ - 2026/07/08 (1.92.9) - Drag and Drop: commented out legacy name `ImGuiDragDropFlags_SourceAutoExpirePayload` which obsoleted in 1.90.9 (July 2024). Use `ImGuiDragDropFlags_PayloadAutoExpire`.
  - 2026/07/06 (1.92.9) - ColorEdit: obsoleted SetColorEditOptions() function added in 1.51 (June 2017) in favor of directly poking to io.ConfigColorEditFlags. More consistent and easier to discover.
  - 2026/06/02 (1.92.9) - TreeNode: commented out legacy name ImGuiTreeNodeFlags_SpanTextWidth which was obsoleted in 1.90.7 (May 2024). Use ImGuiTreeNodeFlags_SpanLabelWidth instead.
  - 2026/05/07 (1.92.8) - DrawList: swapped the last two arguments of AddRect(), AddPolyline(), PathStroke().
@@ -15711,11 +15712,17 @@ void ImGui::ClearIniSettings()
 void ImGui::CleanupIniSettings(ImGuiSettingsCleanupArgs* args)
 {
     ImGuiContext& g = *GImGui;
-    if (g.PlatformIO.Platform_SessionDate == 0)
-        return;
-    ImGuiPackedDate discard_older_than_date_p = g.PlatformIO.Platform_SessionDate;
-    discard_older_than_date_p.SubtractMonths(args->DiscardOlderThanMonths);
-    args->_DiscardOlderThanDate = discard_older_than_date_p.Unpack();
+    if (args->DiscardAll)
+        for (ImGuiSettingsHandler& handler : g.SettingsHandlers)
+            if (args->TypeHashFilter == 0 || handler.TypeHash == args->TypeHashFilter)
+                if (handler.ClearAllFn != NULL)
+                    handler.ClearAllFn(&g, &handler);
+    if (g.PlatformIO.Platform_SessionDate != 0 && args->DiscardOlderThanMonths != 0)
+    {
+        ImGuiPackedDate discard_older_than_date_p = g.PlatformIO.Platform_SessionDate;
+        discard_older_than_date_p.SubtractMonths(args->DiscardOlderThanMonths);
+        args->_DiscardOlderThanDate = discard_older_than_date_p.Unpack();
+    }
     for (ImGuiSettingsHandler& handler : g.SettingsHandlers)
         if (args->TypeHashFilter == 0 || handler.TypeHash == args->TypeHashFilter)
             if (handler.CleanupFn != NULL)
