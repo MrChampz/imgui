@@ -13,7 +13,7 @@
 //  [X] Renderer: User texture binding. Use 'SDL_Texture*' as texture identifier. Read the FAQ about ImTextureID/ImTextureRef!
 //  [X] Renderer: Large meshes support (64k+ vertices) even with 16-bit indices (ImGuiBackendFlags_RendererHasVtxOffset).
 //  [X] Renderer: Texture updates support for dynamic font atlas (ImGuiBackendFlags_RendererHasTextures).
-//  [X] Renderer: Expose selected render state for draw callbacks to use. Access in '(ImGui_ImplXXXX_RenderState*)GetPlatformIO().Renderer_RenderState'.
+//  [X] Renderer: Expose selected render state for draw callbacks to use. Access with ImGui_ImplSDLRenderer3_GetRenderState().
 
 // You can use unmodified imgui_impl_* files in your project. See examples/ folder for examples of using this.
 // Prefer including the entire imgui/ repository into your project (either as a copy or as a submodule), and only build the backends you need.
@@ -49,7 +49,7 @@ IMGUI_IMPL_API void     ImGui_ImplSDLRenderer3_UpdateTexture(ImTextureData* tex)
 struct ImGui_ImplSDLRenderer3_RenderState
 {
     SDL_Renderer*       Renderer;
-    SDL_ScaleMode       CurrentScaleMode;   // Current scale mode during render.
+    SDL_ScaleMode       CurrentScaleMode;   // Current scale mode during render. Set to SDL_SCALEMODE_INVALID to use "SetSamplerFromTex" mode.
 };
 
 static inline ImGui_ImplSDLRenderer3_RenderState* ImGui_ImplSDLRenderer3_GetRenderState() { return (ImGui_ImplSDLRenderer3_RenderState*)ImGui::GetPlatformIO().Renderer_RenderState; }
