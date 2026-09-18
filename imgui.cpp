@@ -395,6 +395,7 @@ IMPLEMENTING SUPPORT for ImGuiBackendFlags_RendererHasTextures:
  When you are not sure about an old symbol or function name, try using the Search/Find function of your IDE to look for comments or references in all imgui files.
  You can read releases logs https://github.com/ocornut/imgui/releases for more details.
 
+ - 2026/09/18 (1.93.0) - ImGuiTextFilter: removed `float width` parameter of `Draw(const char* filter, float width)`: prefer using `SetNextItemWidth(float)` which is standard. Kept inline redirection function.
  - 2026/08/03 (1.93.0) - Style: obsoleted `style.CurveTessellationTol (default 1.25)` which was in Pixels² unit in favor of `style.CurveTessellationMaxError` (default 1.12)` which is in Pixels unit.
                          - style.CurveTessellationMaxError == sqrf(style.CurveTessellationTol).
  - 2026/07/20 (1.92.9) - DragXXX, SliderXXX, InputScalar: with `ImGuiItemFlags_LiveEditOnInputScalar` now defaulting to being disabled:
@@ -3093,7 +3094,7 @@ IM_MSVC_RUNTIME_CHECKS_RESTORE
 ImGuiTextFilter::ImGuiTextFilter(const char* default_filter) //-V1077
 {
     InputBuf[0] = 0;
-    CountGrep = 0;
+    CountInclude = 0;
     if (default_filter)
     {
         ImStrncpy(InputBuf, default_filter, IM_COUNTOF(InputBuf));
@@ -3101,17 +3102,21 @@ ImGuiTextFilter::ImGuiTextFilter(const char* default_filter) //-V1077
     }
 }
 
-bool ImGuiTextFilter::Draw(const char* label, float width)
+bool ImGuiTextFilter::Draw(const char* label)
 {
-    if (width != 0.0f)
-        ImGui::SetNextItemWidth(width);
-    bool value_changed = ImGui::InputText(label, InputBuf, IM_COUNTOF(InputBuf));
+    return DrawWithHint(label, "incl,-excl");
+}
+
+// Use ImGui::SetNextItemWidth() manually if you want to use this.
+bool ImGuiTextFilter::DrawWithHint(const char* label, const char* hint)
+{
+    bool value_changed = ImGui::InputTextWithHint(label, hint, InputBuf, IM_COUNTOF(InputBuf));
     if (value_changed)
         Build();
     return value_changed;
 }
 
-void ImGuiTextFilter::ImGuiTextRange::split(char separator, ImVector<ImGuiTextRange>* out) const
+static void ImStrSplit(const char* b, const char* e, char separator, ImVector<ImGuiTextFilter::ImGuiTextRange>* out)
 {
     out->resize(0);
     const char* wb = b;
@@ -3120,32 +3125,32 @@ void ImGuiTextFilter::ImGuiTextRange::split(char separator, ImVector<ImGuiTextRa
     {
         if (*we == separator)
         {
-            out->push_back(ImGuiTextRange(wb, we));
+            out->push_back(ImGuiTextFilter::ImGuiTextRange(wb, we));
             wb = we + 1;
         }
         we++;
     }
     if (wb != we)
-        out->push_back(ImGuiTextRange(wb, we));
+        out->push_back(ImGuiTextFilter::ImGuiTextRange(wb, we));
 }
 
 void ImGuiTextFilter::Build()
 {
     Filters.resize(0);
     ImGuiTextRange input_range(InputBuf, InputBuf + ImStrlen(InputBuf));
-    input_range.split(',', &Filters);
+    ImStrSplit(InputBuf, InputBuf + ImStrlen(InputBuf), ',', &Filters);
 
-    CountGrep = 0;
+    CountInclude = 0;
     for (ImGuiTextRange& f : Filters)
     {
-        while (f.b < f.e && ImCharIsBlankA(f.b[0]))
-            f.b++;
-        while (f.e > f.b && ImCharIsBlankA(f.e[-1]))
-            f.e--;
-        if (f.empty())
+        while (f.Begin < f.End && ImCharIsBlankA(f.Begin[0]))
+            f.Begin++;
+        while (f.End > f.Begin && ImCharIsBlankA(f.End[-1]))
+            f.End--;
+        if (f.Begin == f.End)
             continue;
-        if (f.b[0] != '-')
-            CountGrep += 1;
+        if (f.Begin[0] != '-')
+            CountInclude += 1;
     }
 }
 
@@ -3159,24 +3164,24 @@ bool ImGuiTextFilter::PassFilter(const char* text, const char* text_end) const
 
     for (const ImGuiTextRange& f : Filters)
     {
-        if (f.b == f.e)
+        if (f.Begin == f.End)
             continue;
-        if (f.b[0] == '-')
+        if (f.Begin[0] == '-')
         {
             // Subtract
-            if (ImStristr(text, text_end, f.b + 1, f.e) != NULL)
+            if (ImStristr(text, text_end, f.Begin + 1, f.End) != NULL)
                 return false;
         }
         else
         {
             // Grep
-            if (ImStristr(text, text_end, f.b, f.e) != NULL)
+            if (ImStristr(text, text_end, f.Begin, f.End) != NULL)
                 return true;
         }
     }
 
     // Implicit * grep
-    if (CountGrep == 0)
+    if (CountInclude == 0)
         return true;
 
     return false;
@@ -4337,7 +4342,7 @@ ImGuiContext::ImGuiContext(ImFontAtlas* shared_font_atlas)
 
     NavJustMovedFromFocusScopeId = NavJustMovedToId = NavJustMovedToFocusScopeId = 0;
     NavJustMovedToKeyMods = ImGuiMod_None;
-    NavJustMovedToIsTabbing = false;
+    NavJustMovedToIsTabbing = NavJustMovedToIsInit = false;
     NavJustMovedToHasSelectionData = false;
 
     // All platforms use Ctrl+Tab but Ctrl<>Super are swapped on Mac...
@@ -14174,6 +14179,7 @@ void ImGui::NavInitRequestApplyResult()
         g.NavJustMovedToFocusScopeId = result->FocusScopeId;
         g.NavJustMovedToKeyMods = 0;
         g.NavJustMovedToIsTabbing = false;
+        g.NavJustMovedToIsInit = true;
         g.NavJustMovedToHasSelectionData = (result->ItemFlags & ImGuiItemFlags_HasSelectionUserData) != 0;
     }
 
@@ -14441,6 +14447,7 @@ void ImGui::NavMoveRequestApplyResult()
         g.NavJustMovedToFocusScopeId = result->FocusScopeId;
         g.NavJustMovedToKeyMods = g.NavMoveKeyMods;
         g.NavJustMovedToIsTabbing = (g.NavMoveFlags & ImGuiNavMoveFlags_IsTabbing) != 0;
+        g.NavJustMovedToIsInit = false;
         g.NavJustMovedToHasSelectionData = (result->ItemFlags & ImGuiItemFlags_HasSelectionUserData) != 0;
         //IMGUI_DEBUG_LOG_NAV("[nav] NavJustMovedFromFocusScopeId = 0x%08X, NavJustMovedToFocusScopeId = 0x%08X\n", g.NavJustMovedFromFocusScopeId, g.NavJustMovedToFocusScopeId);
     }

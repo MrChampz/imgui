@@ -45,6 +45,8 @@ Breaking Changes:
   favor of `style.CurveTessellationMaxError` (default 1.12)` which is in Pixels unit. It is
   easier to tweak + this allows us to easily scale error threshold on high density screens.
   - style.CurveTessellationMaxError == sqrf(style.CurveTessellationTol).
+- ImGuiTextFilter: removed `float width` parameter of `Draw(const char* filter, float width)`:
+  prefer using `SetNextItemWidth(float)` which is standard. Kept inline redirection function.
 - Backends:
   - DirectX12: Removed support for legacy `ImGui_ImplDX12_Init()` signature, which was
     obsoleted in 1.91.6 (December 2014), because it needed to forcefully disable support
@@ -66,6 +68,8 @@ Other Changes:
   - Using <> scrolling buttons while the selected Tab is at either end of the
     section mid-section but not fully visible always makes it fully visible
     (before eventually selecting a Tab in the leading/trailing section)
+- Selectable:
+  - Fixed `ImGuiSelectableFlags_SelectOnNav` triggering during NavInit.
 - Fonts:
   - Reworked `AddFontDefault()` to use `io.DisplayFrameBufferScale` as part of the heuristic
     to select `AddFontDefaultVector()` by default, effectively using ProggyForever instead of
@@ -79,6 +83,12 @@ Other Changes:
   - Amended context menu right-click opening code to check that the right-click
     hasn't been owned by another items. This is more correct and also necessary
     to avoid Drags/Sliders cancelling also triggering a cancel menu. (#8564, #9534)
+- ImGuiTextFilter:
+  - Added `DrawWithHint()` function. (#6206, #6395, #6447)
+  - Added a "incl,-excl" hint by default when the search field is empty. (#6206, #6395, #6447)
+- Style:
+  - Inverted `ImGuiCol_TitleBgXXX` colors for `StyleColorsLight()` so that the selected
+    window title bar appears brighter.
 - Misc:
   - Added `ImGuiItemFlags_MixedValue` flag for representing mixed/indeterminate values.
     Supported by: Checkbox(), RadioButton(), DragXXX(), SliderXXX(), InputXXX(), ColorXXX()
@@ -105,6 +115,7 @@ Other Changes:
     Currently only supported by the OpenGL2/3 and SDLRenderer3 backend. (#9378)
 - Demo:
   - Added `Widgets->Mixed Values` section. (#5518, #5677, #6865)
+  - Style Editor: fixed style/colors combo box applying style when opening Combo.
 - Backends:
   - QNX: added QNX Screen backend. (#9492) [@mgorchak-blackberry]
   - OpenGL2, OpenGL3: added support for `platform_io.DrawCallback_SetSamplerFromTex` draw
