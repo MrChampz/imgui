@@ -2785,34 +2785,37 @@ struct ImGuiOnceUponAFrame
     operator bool() const { int current_frame = ImGui::GetFrameCount(); if (RefFrame == current_frame) return false; RefFrame = current_frame; return true; }
 };
 
-// Helper: Parse and apply text filters. In format "aaaaa[,bbbb][,ccccc]"
+// Helper: Parse and apply text filters e.g. 'aaa bbb -ccc'.
 struct ImGuiTextFilter
 {
     IMGUI_API           ImGuiTextFilter(const char* default_filter = "");
     IMGUI_API bool      PassFilter(const char* text, const char* text_end = NULL) const;
     IMGUI_API void      Build();                                        // Update internal data when filter changes
     inline void         Clear()          { InputBuf[0] = 0; Build(); }  // Clear filter
-    inline bool         IsActive() const { return Filters.Size != 0; }  // Useful if you need e.g. an alternative code-path when there are no filters
+    inline bool         IsActive() const { return _Items.Size != 0; }   // Useful if you need e.g. an alternative code-path when there are no filters
 
     // Helper to call InputText() + Build() when buffer is changed.
     IMGUI_API bool      Draw(const char* label = "Filter");
-    IMGUI_API bool      DrawWithHint(const char* label = "Filter", const char* hint = "incl,-excl");
+    IMGUI_API bool      DrawWithHint(const char* label = "Filter", const char* hint = "incl -excl");
 #ifndef IMGUI_DISABLE_OBSOLETE_FUNCTIONS
     inline bool         Draw(const char* label, float width)            { if (width != 0.0f) ImGui::SetNextItemWidth(width); return Draw(label); }
 #endif
 
     // [Internal] Don't use! Will be replaced with ImStrv.
-    struct ImGuiTextRange
+    struct ImGuiTextFilterItem
     {
-        const char* Begin;
-        const char* End;
-        ImGuiTextRange(const char* b, const char* e) { Begin = b; End = e; }
+        const char*     Begin;
+        const char*     End;
+        ImGuiTextFilterItem(const char* b, const char* e) { Begin = b; End = e; }
     };
 
     // [Internal] Members
-    char                    InputBuf[256];
-    ImVector<ImGuiTextRange>Filters;
-    int                     CountInclude;
+    char                InputBuf[256];      // User input buffer
+    char                FilterOp;           // == '|' (any) pr '&' (all)
+    ImU8                MinWordSize;        // == 1
+    int                 _CountExclude;      // >= 0
+    int                 _CountInclude;      // >= 0
+    ImVector<ImGuiTextFilterItem> _Items;   // Pre-parsed, trimmed, reordered items
 };
 
 // Helper: Growable text buffer for logging/accumulating text

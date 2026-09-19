@@ -3090,11 +3090,13 @@ IM_MSVC_RUNTIME_CHECKS_RESTORE
 // [SECTION] ImGuiTextFilter
 //-----------------------------------------------------------------------------
 
-// Helper: Parse and apply text filters. In format "aaaaa[,bbbb][,ccccc]"
+// Helper: Parse and apply text filters e.g. 'aaa bbb -ccc'.
 ImGuiTextFilter::ImGuiTextFilter(const char* default_filter) //-V1077
 {
     InputBuf[0] = 0;
-    CountInclude = 0;
+    FilterOp = '|';
+    MinWordSize = 1;
+    _CountExclude = _CountInclude = 0;
     if (default_filter)
     {
         ImStrncpy(InputBuf, default_filter, IM_COUNTOF(InputBuf));
@@ -3104,7 +3106,7 @@ ImGuiTextFilter::ImGuiTextFilter(const char* default_filter) //-V1077
 
 bool ImGuiTextFilter::Draw(const char* label)
 {
-    return DrawWithHint(label, "incl,-excl");
+    return DrawWithHint(label, "incl -excl");
 }
 
 // Use ImGui::SetNextItemWidth() manually if you want to use this.
@@ -3116,75 +3118,79 @@ bool ImGuiTextFilter::DrawWithHint(const char* label, const char* hint)
     return value_changed;
 }
 
-static void ImStrSplit(const char* b, const char* e, char separator, ImVector<ImGuiTextFilter::ImGuiTextRange>* out)
-{
-    out->resize(0);
-    const char* wb = b;
-    const char* we = wb;
-    while (we < e)
-    {
-        if (*we == separator)
-        {
-            out->push_back(ImGuiTextFilter::ImGuiTextRange(wb, we));
-            wb = we + 1;
-        }
-        we++;
-    }
-    if (wb != we)
-        out->push_back(ImGuiTextFilter::ImGuiTextRange(wb, we));
-}
-
+// Parse filter and split into items
 void ImGuiTextFilter::Build()
 {
-    Filters.resize(0);
-    ImGuiTextRange input_range(InputBuf, InputBuf + ImStrlen(InputBuf));
-    ImStrSplit(InputBuf, InputBuf + ImStrlen(InputBuf), ',', &Filters);
-
-    CountInclude = 0;
-    for (ImGuiTextRange& f : Filters)
+    _Items.resize(0);
+    _CountExclude = _CountInclude = 0;
+    IM_ASSERT(FilterOp == '|' || FilterOp == '&');
+    const char* buf_e = InputBuf + ImStrlen(InputBuf);
+    const char* word_e;
+    for (const char* word_b = InputBuf; word_b < buf_e; word_b = word_e + 1)
     {
-        while (f.Begin < f.End && ImCharIsBlankA(f.Begin[0]))
-            f.Begin++;
-        while (f.End > f.Begin && ImCharIsBlankA(f.End[-1]))
-            f.End--;
-        if (f.Begin == f.End)
+        // Trim blanks
+        while (word_b < buf_e && ImCharIsBlankA(word_b[0])) // FIXME: UTF-8 support
+            word_b++;
+        const bool is_excl = (word_b < buf_e && word_b[0] == '-');
+        if (is_excl)
+            word_b++;
+        const bool is_quote = (word_b < buf_e && word_b[0] == '\"');
+        if (is_quote)
+        {
+            // Parsing quotes. Omit storing leading/trailing quotes.
+            word_e = ImStrchrRange(++word_b, buf_e, '\"');
+            if (word_e == NULL)
+                word_e = buf_e;
+        }
+        else
+        {
+            // Handle both ' ' and ',' separators.
+            for (word_e = word_b; word_e < buf_e; word_e++)
+                if (*word_e == ' ' || *word_e == ',')
+                    break;
+        }
+
+        // Min length
+        if (word_e - word_b < MinWordSize)
             continue;
-        if (f.Begin[0] != '-')
-            CountInclude += 1;
+
+        // Add to list
+        // The '-' is not stored in items but implicitly inferred using (n < CountExclude).
+        // FIXME-OPT: about ~push_front(): as N is derived from user inputs we expect this to be fine.
+        _Items.insert(is_excl ? _Items.Data : _Items.Data + _Items.Size, ImGuiTextFilter::ImGuiTextFilterItem(word_b, word_e));
+        if (is_excl)
+            _CountExclude++;
+        else
+            _CountInclude++;
     }
 }
 
 bool ImGuiTextFilter::PassFilter(const char* text, const char* text_end) const
 {
-    if (Filters.Size == 0)
+    if (_Items.Size == 0)
         return true;
-
     if (text == NULL)
         text = text_end = "";
 
-    for (const ImGuiTextRange& f : Filters)
+    // Filters are sorted so that '-' ones are always leading.
+    int n;
+    for (n = 0; n < _CountExclude; n++)
+        if (ImStristr(text, text_end, _Items.Data[n].Begin, _Items.Data[n].End) != NULL)
+            return false;
+    const bool is_and_filter = (FilterOp == '&');
+    for (; n < _Items.Size; n++)
     {
-        if (f.Begin == f.End)
-            continue;
-        if (f.Begin[0] == '-')
-        {
-            // Subtract
-            if (ImStristr(text, text_end, f.Begin + 1, f.End) != NULL)
-                return false;
-        }
-        else
-        {
-            // Grep
-            if (ImStristr(text, text_end, f.Begin, f.End) != NULL)
-                return true;
-        }
+        const bool is_match = ImStristr(text, text_end, _Items.Data[n].Begin, _Items.Data[n].End) != NULL;
+        if (is_match && !is_and_filter)     //  or   incl  1  -> true
+            return true;                    //  or   incl  0  -> continue
+        if (!is_match && is_and_filter)     //  and  incl  1  -> continue
+            return false;                   //  and  incl  0  -> false
     }
 
-    // Implicit * grep
-    if (CountInclude == 0)
+    // When no inclusion are specified (only exclusions) we implicitly pass
+    if (_CountInclude == 0)
         return true;
-
-    return false;
+    return is_and_filter;
 }
 
 //-----------------------------------------------------------------------------
